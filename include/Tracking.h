@@ -259,15 +259,7 @@ protected:
     LocalMapping* mpLocalMapper;
     LoopClosing* mpLoopClosing;
 
-    // Watchdog variables
-    bool mbWatchdogEnabled;
-    double mTimeLastKeyframe;
-    int mnLastFrameID;
-    double mfMinFPS;
-    double mfMinInlierRatio;
-    double mfMaxBATime;
-    size_t mMemLimit;
-    std::mutex mWatchdogMutex;
+  
 
     //ORB
     ORBextractor* mpORBextractorLeft, *mpORBextractorRight;
