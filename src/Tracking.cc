@@ -47,7 +47,7 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
     mbReadyToInitializate(false), mpSystem(pSys), mpViewer(NULL), bStepByStep(false),
     mpFrameDrawer(pFrameDrawer), mpMapDrawer(pMapDrawer), mpAtlas(pAtlas), mnLastRelocFrameId(0), time_recently_lost(5.0),
     mnInitialFrameId(0), mbCreatedMap(false), mnFirstFrameId(0), mpCamera2(nullptr), mpLastKeyFrame(static_cast<KeyFrame*>(NULL)),
-    
+    mWatchdogTimeout(2.0), mLastFrameTime(0.0), mWatchdogCounter(0), mbWatchdogReset(false)
 {
     // Load camera parameters from settings file
     if(settings){
@@ -585,6 +585,9 @@ void Tracking::newParameterLoader(Settings *settings) {
     mMinFrames = 0;
     mMaxFrames = settings->fps();
     mbRGB = settings->rgb();
+
+    //Watchdog parameters
+   // mWatchdogTimeout = settings->watchdogTimeout();
 
     //ORB parameters
     int nFeatures = settings->nFeatures();
@@ -1791,6 +1794,27 @@ void Tracking::ResetFrameIMU()
     // TODO To implement...
 }
 
+void Tracking::CheckWatchdog()
+{
+    double currentTime = std::chrono::duration_cast<std::chrono::duration<double>>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+        cout<<"test"<<endl;
+    if (mLastFrameTime > 0.0)
+    {
+        double elapsed = currentTime - mLastFrameTime;
+        std::cout << "[Watchdog] elapsed=" << elapsed << "s" << std::endl;  // ← 加這行
+        if (elapsed > mWatchdogTimeout)
+        {
+            mWatchdogCounter++;
+            std::cout << "[Watchdog] Frame interval exceeded timeout: "
+                      << elapsed << "s (timeout=" << mWatchdogTimeout
+                      << "s), total triggers=" << mWatchdogCounter << std::endl;
+        }
+    }
+
+    mLastFrameTime = currentTime;
+}
+
 
 
 
@@ -1804,7 +1828,10 @@ void Tracking::ResetFrameIMU()
 
 void Tracking::Track()
 {
-    
+
+    // Watchdog check - monitor frame processing time
+    CheckWatchdog();
+
     if (bStepByStep)
     {
         std::cout << "Tracking: Waiting to the next step" << std::endl;

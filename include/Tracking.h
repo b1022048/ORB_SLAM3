@@ -231,6 +231,9 @@ protected:
     // Reset IMU biases and compute frame velocity
     void ResetFrameIMU();
 
+    // Watchdog: monitor inter-frame processing time
+    void CheckWatchdog();
+
     bool mbMapUpdated;
 
     // Imu preintegration from last frame
@@ -335,6 +338,12 @@ protected:
     //Motion Model
     bool mbVelocity{false};
     Sophus::SE3f mVelocity;
+
+    //Watchdog configuration and state
+    double mWatchdogTimeout;  // Maximum allowed time per frame (seconds)
+    double mLastFrameTime;    // Timestamp of last frame processed
+    int mWatchdogCounter;     // Number of watchdog triggers
+    bool mbWatchdogReset;     // Flag to indicate watchdog reset
 
     //Color order (true RGB, false BGR, ignored if grayscale)
     bool mbRGB;
