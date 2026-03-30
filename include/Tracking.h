@@ -41,7 +41,6 @@
 
 #include <mutex>
 #include <unordered_set>
-
 namespace ORB_SLAM3
 {
 
@@ -52,6 +51,9 @@ class LocalMapping;
 class LoopClosing;
 class System;
 class Settings;
+
+
+
 
 class Tracking
 {  
@@ -256,6 +258,16 @@ protected:
     //Other Thread Pointers
     LocalMapping* mpLocalMapper;
     LoopClosing* mpLoopClosing;
+
+    // Watchdog variables
+    bool mbWatchdogEnabled;
+    double mTimeLastKeyframe;
+    int mnLastFrameID;
+    double mfMinFPS;
+    double mfMinInlierRatio;
+    double mfMaxBATime;
+    size_t mMemLimit;
+    std::mutex mWatchdogMutex;
 
     //ORB
     ORBextractor* mpORBextractorLeft, *mpORBextractorRight;

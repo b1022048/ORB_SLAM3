@@ -46,7 +46,8 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
     mbOnlyTracking(false), mbMapUpdated(false), mbVO(false), mpORBVocabulary(pVoc), mpKeyFrameDB(pKFDB),
     mbReadyToInitializate(false), mpSystem(pSys), mpViewer(NULL), bStepByStep(false),
     mpFrameDrawer(pFrameDrawer), mpMapDrawer(pMapDrawer), mpAtlas(pAtlas), mnLastRelocFrameId(0), time_recently_lost(5.0),
-    mnInitialFrameId(0), mbCreatedMap(false), mnFirstFrameId(0), mpCamera2(nullptr), mpLastKeyFrame(static_cast<KeyFrame*>(NULL))
+    mnInitialFrameId(0), mbCreatedMap(false), mnFirstFrameId(0), mpCamera2(nullptr), mpLastKeyFrame(static_cast<KeyFrame*>(NULL)),
+    mbWatchdogEnabled(true), mTimeLastKeyframe(std::chrono::steady_clock::now()), mnLastFrameID(0), mfMinFPS(1.0), mfMinInlierRatio(0.2), mfMaxBATime(0.5), mMemLimit(1500*1024*1024), mWatchdogMutex()
 {
     // Load camera parameters from settings file
     if(settings){
@@ -1789,6 +1790,60 @@ void Tracking::ResetFrameIMU()
 {
     // TODO To implement...
 }
+
+//===================================================
+void Tracking::Watchdog()
+  {
+      if (!mbWatchdogEnabled) return;
+
+      // 1️FPS 檢查
+      auto now = std::chrono::steady_clock::now();
+      double elapsed = std::chrono::duration<double>(now - mTimeLastKeyframe).count();
+      double fps = (mnLastFrameID > 0) ? mnLastFrameID / elapsed : 0.0;
+      if (fps < mfMinFPS)
+          ORB_SLAM3::LogError("[Watchdog] FPS low: %.2f", fps);
+
+      // 2  Inlier ratio
+      int inliers = mpTracker->GetMatchesInliers();
+      int total   = mpTracker->GetTotalMatches();      // 若無此函式可自行計算
+      double ratio = (total > 0) ? static_cast<double>(inliers)/total : 1.0;
+      if (ratio < mfMinInlierRatio)
+          ORB_SLAM3::LogWarning("[Watchdog] Low inlier ratio: %.2f", ratio);
+
+      // 3️ IMU 同步（僅在 IMU 模式下）
+      if (mbInertial && mpTracker->IsImuOutOfSync())
+          ORB_SLAM3::LogError("[Watchdog] IMU out of sync");
+
+      // 4️ BA 時間
+      double baTime = mpTracker->LastBAElapsed();   // 必須在 Tracking 中儲存此值
+      if (baTime > mfMaxBATime)
+          ORB_SLAM3::LogWarning("[Watchdog] Long BA time: %.3f s", baTime);
+
+      // 5️ 記憶體使用
+      size_t rss = GetCurrentRSS();                 // 自定義函式取得 RSS
+      if (rss > mMemLimit)
+          ORB_SLAM3::LogError("[Watchdog] Memory high: %zu MB", rss/1024/1024);
+
+      // 6️ 死鎖檢測（簡單示例）
+      if (!mWatchdogMutex.try_lock_for(std::chrono::milliseconds(100))) {
+          ORB_SLAM3::LogError("[Watchdog] Potential deadlock on watchdog mutex");
+      } else {
+          mWatchdogMutex.unlock();
+      }
+
+      // 更新統計
+      mnLastFrameID++;
+      mTimeLastKeyframe = now;
+  }
+//====================================================
+
+
+
+
+
+
+
+
 
 
 void Tracking::Track()
