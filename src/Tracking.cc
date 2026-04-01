@@ -30,17 +30,9 @@
 #include "GeometricTools.h"
 
 #include <iostream>
-#include <fstream>
-#include <sstream>
-#include <iomanip>
 
 #include <mutex>
 #include <chrono>
-<<<<<<< HEAD
-#include <iomanip>
-=======
-#include <unistd.h>
->>>>>>> b351f099ee1f8a3e25f47788616d7ec38276556b
 
 
 using namespace std;
@@ -54,14 +46,7 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
     mbOnlyTracking(false), mbMapUpdated(false), mbVO(false), mpORBVocabulary(pVoc), mpKeyFrameDB(pKFDB),
     mbReadyToInitializate(false), mpSystem(pSys), mpViewer(NULL), bStepByStep(false),
     mpFrameDrawer(pFrameDrawer), mpMapDrawer(pMapDrawer), mpAtlas(pAtlas), mnLastRelocFrameId(0), time_recently_lost(5.0),
-<<<<<<< HEAD
     mnInitialFrameId(0), mbCreatedMap(false), mnFirstFrameId(0), mpCamera2(nullptr), mpLastKeyFrame(static_cast<KeyFrame*>(NULL))
-=======
-    mnInitialFrameId(0), mbCreatedMap(false), mnFirstFrameId(0), mpCamera2(nullptr), mpLastKeyFrame(static_cast<KeyFrame*>(NULL)),
-    mWatchdogTimeout(2.0), mLastFrameTime(0.0), mWatchdogCounter(0), mbWatchdogReset(false),
-    mWatchdogPostInitFrames(0), mWatchdogOkFrames(0), mWatchdogConsecLost(0), mWatchdogPrevCpuTime(0),
-    mWatchdogTrackStartTime(0.0), mWatchdogLastProcessTime(0.0)
->>>>>>> b351f099ee1f8a3e25f47788616d7ec38276556b
 {
     // Load camera parameters from settings file
     if(settings){
@@ -143,21 +128,6 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
     vdNewKF_ms.clear();
     vdTrackTotal_ms.clear();
 #endif
-
-    // Open per-frame tracking CSV
-    f_track_csv.open("tracking_log.csv");
-    f_track_csv << "frame_id,timestamp,state,"
-                   "num_features,tracked_mps,inliers,"
-                   "is_kf,track_method,"
-                   "inter_frame_dt_ms,"
-                   "kfs_in_map,mps_in_map,imu_init,"
-                   "pose_pred_ms,lm_track_ms,new_kf_ms\n";
-    mPrevFrameTimestamp = -1.0;
-    mLastTrackMethod    = -1;
-    mbLastWasKF         = false;
-    mCsvPosePredMs      = 0.0;
-    mCsvLMTrackMs       = 0.0;
-    mCsvNewKFDecMs      = 0.0;
 }
 
 #ifdef REGISTER_TIMES
@@ -559,8 +529,7 @@ void Tracking::PrintTimeStats()
 Tracking::~Tracking()
 {
     //f_track_stats.close();
-    if(f_track_csv.is_open())
-        f_track_csv.close();
+
 }
 
 void Tracking::newParameterLoader(Settings *settings) {
@@ -615,9 +584,6 @@ void Tracking::newParameterLoader(Settings *settings) {
     mMinFrames = 0;
     mMaxFrames = settings->fps();
     mbRGB = settings->rgb();
-
-    //Watchdog parameters
-   // mWatchdogTimeout = settings->watchdogTimeout();
 
     //ORB parameters
     int nFeatures = settings->nFeatures();
@@ -1824,236 +1790,9 @@ void Tracking::ResetFrameIMU()
     // TODO To implement...
 }
 
-<<<<<<< HEAD
-=======
-void Tracking::CheckWatchdog()
-{
-    // --- (1) Wall-clock timestamp at start of Track() (relative to first call) ---
-    double currentTime = std::chrono::duration_cast<std::chrono::duration<double>>(
-        std::chrono::steady_clock::now().time_since_epoch()).count();
-    static double sWatchdogStartTime = currentTime;
-    double relTime = currentTime - sWatchdogStartTime;
-
-    // --- CPU usage via /proc/self/stat (utime+stime, Linux only) ---
-    long long cpuTicks = 0;
-    {
-        std::ifstream procStat("/proc/self/stat");
-        if (procStat.is_open())
-        {
-            std::string token;
-            for (int i = 0; i < 13; ++i) procStat >> token; // skip fields 1-13
-            long long utime = 0, stime = 0;
-            procStat >> utime >> stime;
-            cpuTicks = utime + stime;
-        }
-    }
-
-    // --- Resident memory via /proc/self/status (VmRSS, Linux only) ---
-    long memKb = 0;
-    {
-        std::ifstream procStatus("/proc/self/status");
-        std::string line;
-        while (std::getline(procStatus, line))
-        {
-            if (line.compare(0, 6, "VmRSS:") == 0)
-            {
-                std::istringstream iss(line.substr(6));
-                iss >> memKb;
-                break;
-            }
-        }
-    }
-
-    // --- (5) IMU queue size (approximate read, no lock needed for monitoring) ---
-    size_t imuQueueSz = mlQueueImuData.size();
-
-    // --- (4) Tracked map points: non-null and non-outlier ---
-    int trackedMPs = 0;
-    if (!mCurrentFrame.mvpMapPoints.empty())
-        for (int i = 0; i < mCurrentFrame.N; ++i)
-            if (mCurrentFrame.mvpMapPoints[i] && !mCurrentFrame.mvbOutlier[i])
-                ++trackedMPs;
-
-    // --- Tracking state name helper ---
-    auto stateStr = [](eTrackingState s) -> const char* {
-        switch (s) {
-            case NO_IMAGES_YET:   return "NO_IMAGES_YET";
-            case NOT_INITIALIZED: return "NOT_INITIALIZED";
-            case OK:              return "OK";
-            case RECENTLY_LOST:   return "RECENTLY_LOST";
-            case LOST:            return "LOST";
-            case OK_KLT:          return "OK_KLT";
-            default:              return "UNKNOWN";
-        }
-    };
-
-    // --- Lazy open CSV with full header ---
-    if (!f_watchdog_log.is_open())
-    {
-        f_watchdog_log.open("watchdog_log.csv");
-        f_watchdog_log << "timestamp_s,elapsed_s,process_time_s,fps_avg,fps_cv_pct,"
-                          "frames_since_kf,tracking_state,feature_pts,tracked_mps,"
-                          "inlier_ratio,inlier_matches,ok_rate_pct,"
-                          "imu_queue_sz,cpu_pct,mem_kb,timeout_exceeded\n";
-    }
-
-    if (mLastFrameTime > 0.0)
-    {
-        // --- (1) Inter-frame interval and timeout check ---
-        double elapsed = currentTime - mLastFrameTime;
-        bool timeoutExceeded = (elapsed > mWatchdogTimeout);
-
-        // --- (2) Frame rate stability: sliding window of last 30 intervals ---
-        mWatchdogFpsWindow.push_back(elapsed);
-        if (mWatchdogFpsWindow.size() > 30)
-            mWatchdogFpsWindow.pop_front();
-
-        double fpsAvg = 0.0, fpsCvPct = 0.0;
-        {
-            double sum = 0.0;
-            for (double d : mWatchdogFpsWindow) sum += d;
-            double meanInterval = sum / mWatchdogFpsWindow.size();
-            if (meanInterval > 0.0)
-            {
-                fpsAvg = 1.0 / meanInterval;
-                double sq = 0.0;
-                for (double d : mWatchdogFpsWindow)
-                    sq += (d - meanInterval) * (d - meanInterval);
-                double stddev = std::sqrt(sq / mWatchdogFpsWindow.size());
-                fpsCvPct = (stddev / meanInterval) * 100.0;
-            }
-        }
-
-        // --- CPU % ---
-        double cpuPct = 0.0;
-        long clkTck = sysconf(_SC_CLK_TCK);
-        if (clkTck > 0 && elapsed > 0.0)
-            cpuPct = (static_cast<double>(cpuTicks - mWatchdogPrevCpuTime) / clkTck)
-                     / elapsed * 100.0;
-
-        // --- (4) Tracking ok rate (only after initialization) and consecutive loss ---
-        bool statePostInit = (mState == OK || mState == OK_KLT ||
-                              mState == RECENTLY_LOST || mState == LOST);
-        if (statePostInit) mWatchdogPostInitFrames++;
-        bool stateOK = (mState == OK || mState == OK_KLT);
-        if (stateOK) mWatchdogOkFrames++;
-        bool stateLost = (mState == LOST || mState == RECENTLY_LOST);
-        if (stateLost) mWatchdogConsecLost++;
-        else           mWatchdogConsecLost = 0;
-        double okRate = (mWatchdogPostInitFrames > 0)
-            ? (100.0 * mWatchdogOkFrames / mWatchdogPostInitFrames) : 0.0;
-
-        // --- (3) Keyframe insertion interval ---
-        int framesSinceKF = static_cast<int>(mCurrentFrame.mnId)
-                          - static_cast<int>(mnLastKeyFrameId);
-
-        // --- (4) Inlier ratio ---
-        float inlierRatio = (mCurrentFrame.N > 0)
-            ? static_cast<float>(mnMatchesInliers) / mCurrentFrame.N : 0.0f;
-
-        // --- Write CSV row ---
-        f_watchdog_log << std::fixed << std::setprecision(6)
-                       << relTime                           << ","
-                       << elapsed                           << ","
-                       << mWatchdogLastProcessTime          << ","
-                       << std::setprecision(3)
-                       << fpsAvg                            << ","
-                       << fpsCvPct                          << ","
-                       << framesSinceKF                     << ","
-                       << stateStr(mState)                  << ","
-                       << mCurrentFrame.N                   << ","
-                       << trackedMPs                        << ","
-                       << std::setprecision(4)
-                       << inlierRatio                       << ","
-                       << mnMatchesInliers                  << ","
-                       << std::setprecision(2)
-                       << okRate                           << ","
-                       << imuQueueSz                        << ","
-                       << cpuPct                            << ","
-                       << memKb                             << ","
-                       << (timeoutExceeded ? 1 : 0)         << "\n";
-        f_watchdog_log.flush();
-
-        // === Alerts ===
-
-        // (1) Frame interval timeout
-        if (timeoutExceeded)
-        {
-            mWatchdogCounter++;
-            std::cout << "[Watchdog] WARNING: frame interval "
-                      << std::fixed << std::setprecision(3) << elapsed
-                      << "s > timeout=" << mWatchdogTimeout
-                      << "s | state=" << stateStr(mState)
-                      << " | triggers=" << mWatchdogCounter << std::endl;
-        }
-
-        // (1) Frame processing time > 80% of frame budget
-        if (mWatchdogLastProcessTime > 0.0 && fpsAvg > 1.0)
-        {
-            double budget = 1.0 / fpsAvg;
-            if (mWatchdogLastProcessTime > 0.8 * budget)
-                std::cout << "[Watchdog] WARNING: process_time="
-                          << std::fixed << std::setprecision(1)
-                          << mWatchdogLastProcessTime * 1000.0
-                          << "ms > 80% of budget (" << budget * 1000.0 << "ms @ "
-                          << std::setprecision(1) << fpsAvg << "fps)" << std::endl;
-        }
-
-        // (2) FPS instability: coefficient of variation > 30%
-        if (mWatchdogFpsWindow.size() >= 10 && fpsCvPct > 30.0)
-            std::cout << "[Watchdog] WARNING: FPS instability CV="
-                      << std::fixed << std::setprecision(1) << fpsCvPct
-                      << "% (avg=" << fpsAvg << "fps)" << std::endl;
-
-        // (3) Keyframe insertion stall: >200 frames without a new KF while tracking is OK
-        if (stateOK && framesSinceKF > 200)
-            std::cout << "[Watchdog] WARNING: no new KF for " << framesSinceKF
-                      << " frames | inliers=" << mnMatchesInliers
-                      << " | tracked_mps=" << trackedMPs << std::endl;
-
-        // (4) Consecutive tracking loss
-        if (mWatchdogConsecLost == 10)
-            std::cout << "[Watchdog] WARNING: tracking lost for "
-                      << mWatchdogConsecLost << " consecutive frames"
-                      << " | ok_rate=" << std::setprecision(1) << okRate << "%"
-                      << " | features=" << mCurrentFrame.N << std::endl;
-        else if (mWatchdogConsecLost > 0 && mWatchdogConsecLost % 30 == 0)
-            std::cout << "[Watchdog] ALERT: tracking lost for "
-                      << mWatchdogConsecLost << " consecutive frames"
-                      << " | ok_rate=" << std::setprecision(1) << okRate << "%"
-                      << " | mem=" << memKb << "kB cpu=" << cpuPct << "%" << std::endl;
-
-        // (5) IMU queue backlog (only for IMU sensors)
-        bool isIMU = (mSensor == System::IMU_MONOCULAR ||
-                      mSensor == System::IMU_STEREO    ||
-                      mSensor == System::IMU_RGBD);
-        if (isIMU && imuQueueSz > 500)
-            std::cout << "[Watchdog] WARNING: IMU queue backlog: "
-                      << imuQueueSz << " samples (preintegration may be lagging)" << std::endl;
-    }
-
-    mLastFrameTime          = currentTime;
-    mWatchdogTrackStartTime = currentTime;
-    mWatchdogPrevCpuTime    = cpuTicks;
-}
-
-
-
-
-
-
-
-
-
-
-
->>>>>>> b351f099ee1f8a3e25f47788616d7ec38276556b
 
 void Tracking::Track()
 {
-
-    // Watchdog check - monitor frame processing time
-    CheckWatchdog();
 
     if (bStepByStep)
     {
@@ -2062,11 +1801,6 @@ void Tracking::Track()
             usleep(500);
         mbStep = false;
     }
-
-    // Save previous-frame timestamp before mLastFrame gets overwritten
-    mPrevFrameTimestamp = mLastFrame.mTimeStamp;
-    mLastTrackMethod    = -1;
-    mbLastWasKF         = false;
 
     if(mpLocalMapper->mbBadImu)
     {
@@ -2194,7 +1928,6 @@ void Tracking::Track()
 #ifdef REGISTER_TIMES
         std::chrono::steady_clock::time_point time_StartPosePred = std::chrono::steady_clock::now();
 #endif
-        auto csv_t_pose_start = std::chrono::steady_clock::now();
 
         // Initial camera pose estimation using motion model or relocalization (if tracking is lost)
         if(!mbOnlyTracking)
@@ -2213,18 +1946,13 @@ void Tracking::Track()
                 {
                     Verbose::PrintMess("TRACK: Track with respect to the reference KF ", Verbose::VERBOSITY_DEBUG);
                     bOK = TrackReferenceKeyFrame();
-                    mLastTrackMethod = 1;
                 }
                 else
                 {
                     Verbose::PrintMess("TRACK: Track with motion model", Verbose::VERBOSITY_DEBUG);
                     bOK = TrackWithMotionModel();
-                    mLastTrackMethod = 0;
                     if(!bOK)
-                    {
                         bOK = TrackReferenceKeyFrame();
-                        mLastTrackMethod = 1;
-                    }
                 }
 
 
@@ -2258,10 +1986,7 @@ void Tracking::Track()
                     if((mSensor == System::IMU_MONOCULAR || mSensor == System::IMU_STEREO || mSensor == System::IMU_RGBD))
                     {
                         if(pCurrentMap->isImuInitialized())
-                        {
                             PredictStateIMU();
-                            mLastTrackMethod = 3;
-                        }
                         else
                             bOK = false;
 
@@ -2276,7 +2001,6 @@ void Tracking::Track()
                     {
                         // Relocalization
                         bOK = Relocalization();
-                        mLastTrackMethod = 2;
                         //std::cout << "mCurrentFrame.mTimeStamp:" << to_string(mCurrentFrame.mTimeStamp) << std::endl;
                         //std::cout << "mTimeStampLost:" << to_string(mTimeStampLost) << std::endl;
                         if(mCurrentFrame.mTimeStamp-mTimeStampLost>3.0f && !bOK)
@@ -2317,7 +2041,6 @@ void Tracking::Track()
                 if(mSensor == System::IMU_MONOCULAR || mSensor == System::IMU_STEREO || mSensor == System::IMU_RGBD)
                     Verbose::PrintMess("IMU. State LOST", Verbose::VERBOSITY_NORMAL);
                 bOK = Relocalization();
-                mLastTrackMethod = 2;
             }
             else
             {
@@ -2327,12 +2050,10 @@ void Tracking::Track()
                     if(mbVelocity)
                     {
                         bOK = TrackWithMotionModel();
-                        mLastTrackMethod = 0;
                     }
                     else
                     {
                         bOK = TrackReferenceKeyFrame();
-                        mLastTrackMethod = 1;
                     }
                 }
                 else
@@ -2387,9 +2108,6 @@ void Tracking::Track()
         if(!mCurrentFrame.mpReferenceKF)
             mCurrentFrame.mpReferenceKF = mpReferenceKF;
 
-        mCsvPosePredMs = std::chrono::duration_cast<std::chrono::duration<double,std::milli>>(
-            std::chrono::steady_clock::now() - csv_t_pose_start).count();
-
 #ifdef REGISTER_TIMES
         std::chrono::steady_clock::time_point time_EndPosePred = std::chrono::steady_clock::now();
 
@@ -2401,7 +2119,6 @@ void Tracking::Track()
 #ifdef REGISTER_TIMES
         std::chrono::steady_clock::time_point time_StartLMTrack = std::chrono::steady_clock::now();
 #endif
-        auto csv_t_lm_start = std::chrono::steady_clock::now();
         // If we have an initial estimation of the camera pose and matching. Track the local map.
         if(!mbOnlyTracking)
         {
@@ -2473,9 +2190,6 @@ void Tracking::Track()
             }
         }
 
-        mCsvLMTrackMs = std::chrono::duration_cast<std::chrono::duration<double,std::milli>>(
-            std::chrono::steady_clock::now() - csv_t_lm_start).count();
-
 #ifdef REGISTER_TIMES
         std::chrono::steady_clock::time_point time_EndLMTrack = std::chrono::steady_clock::now();
 
@@ -2527,20 +2241,13 @@ void Tracking::Track()
 #ifdef REGISTER_TIMES
             std::chrono::steady_clock::time_point time_StartNewKF = std::chrono::steady_clock::now();
 #endif
-            auto csv_t_kf_start = std::chrono::steady_clock::now();
             bool bNeedKF = NeedNewKeyFrame();
 
             // Check if we need to insert a new keyframe
             // if(bNeedKF && bOK)
             if(bNeedKF && (bOK || (mInsertKFsLost && mState==RECENTLY_LOST &&
                                    (mSensor == System::IMU_MONOCULAR || mSensor == System::IMU_STEREO || mSensor == System::IMU_RGBD))))
-            {
-                mbLastWasKF = true;
                 CreateNewKeyFrame();
-            }
-
-            mCsvNewKFDecMs = std::chrono::duration_cast<std::chrono::duration<double,std::milli>>(
-                std::chrono::steady_clock::now() - csv_t_kf_start).count();
 
 #ifdef REGISTER_TIMES
             std::chrono::steady_clock::time_point time_EndNewKF = std::chrono::steady_clock::now();
@@ -2612,17 +2319,6 @@ void Tracking::Track()
 
     }
 
-<<<<<<< HEAD
-    LogTrackingCSV();
-=======
-    // --- Watchdog: (1) record actual frame processing time ---
-    {
-        double trackEnd = std::chrono::duration_cast<std::chrono::duration<double>>(
-            std::chrono::steady_clock::now().time_since_epoch()).count();
-        mWatchdogLastProcessTime = trackEnd - mWatchdogTrackStartTime;
-    }
->>>>>>> b351f099ee1f8a3e25f47788616d7ec38276556b
-
 #ifdef REGISTER_LOOP
     if (Stop()) {
 
@@ -2633,65 +2329,6 @@ void Tracking::Track()
         }
     }
 #endif
-}
-
-void Tracking::LogTrackingCSV()
-{
-    if(!f_track_csv.is_open())
-        return;
-
-    // Count non-outlier tracked map points
-    int nTracked = 0;
-    for(int i = 0; i < mCurrentFrame.N; i++)
-        if(mCurrentFrame.mvpMapPoints[i] && !mCurrentFrame.mvbOutlier[i])
-            nTracked++;
-
-    double dt_ms = (mPrevFrameTimestamp > 0.0)
-        ? (mCurrentFrame.mTimeStamp - mPrevFrameTimestamp) * 1000.0
-        : 0.0;
-
-    Map* pMap = mpAtlas->GetCurrentMap();
-    bool imuInit = pMap ? pMap->isImuInitialized() : false;
-
-    // state → readable string
-    const char* stateStr;
-    switch(mState){
-        case NO_IMAGES_YET:    stateStr = "NO_IMAGE";    break;
-        case NOT_INITIALIZED:  stateStr = "NOT_INIT";    break;
-        case OK:               stateStr = "OK";           break;
-        case RECENTLY_LOST:    stateStr = "RECENT_LOST"; break;
-        case LOST:             stateStr = "LOST";         break;
-        default:               stateStr = "UNKNOWN";     break;
-    }
-
-    // track_method → readable string
-    const char* methodStr;
-    switch(mLastTrackMethod){
-        case 0:  methodStr = "MotionModel"; break;
-        case 1:  methodStr = "RefKF";        break;
-        case 2:  methodStr = "Reloc";        break;
-        case 3:  methodStr = "PredictIMU";  break;
-        default: methodStr = "N/A";          break;
-    }
-
-    f_track_csv
-        << mCurrentFrame.mnId                           << ","
-        << std::fixed << std::setprecision(6)
-        << mCurrentFrame.mTimeStamp                     << ","
-        << stateStr                                     << ","
-        << mCurrentFrame.N                              << ","
-        << nTracked                                     << ","
-        << mnMatchesInliers                             << ","
-        << (mbLastWasKF ? "Yes" : "No")                 << ","
-        << methodStr                                    << ","
-        << std::setprecision(3)
-        << dt_ms                                        << ","
-        << (pMap ? (int)pMap->KeyFramesInMap() : 0)     << ","
-        << (int)mpAtlas->MapPointsInMap()               << ","
-        << (imuInit ? "Yes" : "No")                     << ","
-        << mCsvPosePredMs                               << ","
-        << mCsvLMTrackMs                                << ","
-        << mCsvNewKFDecMs                               << "\n";
 }
 
 
@@ -4427,6 +4064,7 @@ int Tracking::GetMatchesInliers()
 {
     return mnMatchesInliers;
 }
+
 
 void Tracking::SaveSubTrajectory(string strNameFile_frames, string strNameFile_kf, string strFolder)
 {

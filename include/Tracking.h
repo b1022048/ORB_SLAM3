@@ -41,11 +41,7 @@
 
 #include <mutex>
 #include <unordered_set>
-<<<<<<< HEAD
 
-=======
-#include <deque>
->>>>>>> b351f099ee1f8a3e25f47788616d7ec38276556b
 namespace ORB_SLAM3
 {
 
@@ -233,9 +229,6 @@ protected:
     // Reset IMU biases and compute frame velocity
     void ResetFrameIMU();
 
-    // Watchdog: monitor inter-frame processing time
-    void CheckWatchdog();
-
     bool mbMapUpdated;
 
     // Imu preintegration from last frame
@@ -264,11 +257,6 @@ protected:
     LocalMapping* mpLocalMapper;
     LoopClosing* mpLoopClosing;
 
-<<<<<<< HEAD
-=======
-  
-
->>>>>>> b351f099ee1f8a3e25f47788616d7ec38276556b
     //ORB
     ORBextractor* mpORBextractorLeft, *mpORBextractorRight;
     ORBextractor* mpIniORBextractor;
@@ -344,20 +332,6 @@ protected:
     bool mbVelocity{false};
     Sophus::SE3f mVelocity;
 
-    //Watchdog configuration and state
-    double mWatchdogTimeout;            // Maximum allowed inter-frame interval (seconds)
-    double mLastFrameTime;              // Wall-clock time at start of last Track() call
-    int mWatchdogCounter;               // Number of timeout triggers
-    bool mbWatchdogReset;               // Flag to indicate watchdog reset
-    ofstream f_watchdog_log;            // CSV log file for watchdog measurements
-    int mWatchdogPostInitFrames;        // Frames counted after leaving NOT_INITIALIZED (OK/OK_KLT/RECENTLY_LOST/LOST)
-    int mWatchdogOkFrames;              // Frames with OK/OK_KLT tracking state
-    int mWatchdogConsecLost;            // Consecutive LOST/RECENTLY_LOST frames
-    long long mWatchdogPrevCpuTime;     // Previous process CPU ticks (for CPU% calc)
-    double mWatchdogTrackStartTime;     // Wall-clock time when Track() started (for process_time)
-    double mWatchdogLastProcessTime;    // Actual processing duration of last Track() call (s)
-    std::deque<double> mWatchdogFpsWindow; // Sliding window of inter-frame intervals (last 30)
-
     //Color order (true RGB, false BGR, ignored if grayscale)
     bool mbRGB;
 
@@ -368,16 +342,6 @@ protected:
     int mnNumDataset;
 
     ofstream f_track_stats;
-
-    // Per-iteration CSV log
-    ofstream f_track_csv;
-    double mPrevFrameTimestamp;  // timestamp of previous frame (before mLastFrame gets overwritten)
-    int    mLastTrackMethod;     // 0=MotionModel 1=RefKF 2=Reloc 3=PredictIMU -1=NA
-    bool   mbLastWasKF;          // whether current frame triggered a new KF
-    double mCsvPosePredMs;       // unconditional timing (no REGISTER_TIMES needed)
-    double mCsvLMTrackMs;
-    double mCsvNewKFDecMs;
-    void LogTrackingCSV();
 
     ofstream f_track_times;
     double mTime_PreIntIMU;
