@@ -22,6 +22,7 @@
 
 #include <opencv2/core/core.hpp>
 #include <opencv2/features2d/features2d.hpp>
+#include <fstream>
 
 #include "Viewer.h"
 #include "FrameDrawer.h"
@@ -107,6 +108,8 @@ public:
     void SaveSubTrajectory(string strNameFile_frames, string strNameFile_kf, Map* pMap);
 
     float GetImageScale();
+
+    void WriteFrameLog();
 
 #ifdef REGISTER_LOOP
     void RequestStop();
@@ -348,6 +351,75 @@ protected:
     double mTime_PosePred;
     double mTime_LocalMapTrack;
     double mTime_NewKF_Dec;
+
+    // ── Tracking Monitor ────────────────────────────────────────────────────
+    // Per-frame log record; reset at the top of Track() each iteration.
+    struct FrameLog {
+        // identity
+        long unsigned int frame_id  = 0;
+        double            timestamp = 0.0;
+
+        // state
+        int state      = 0;   // eTrackingState value
+        int last_state = 0;
+
+        // tracking path: 0=RefKF, 1=MotionModel, 2=IMU_MM, 3=Reloc, -1=none
+        int  tracking_method    = -1;
+        bool wider_window_used  = false;
+
+        // matches (filled inside TrackReferenceKeyFrame / TrackWithMotionModel)
+        int initial_matches = 0;
+
+        // TrackLocalMap internals
+        int  matches_before_tlm_opt  = 0;
+        int  outliers_before_tlm_opt = 0;
+        int  matches_after_tlm_opt   = 0;
+        int  outliers_after_tlm_opt  = 0;
+
+        // final result (mnMatchesInliers)
+        int   final_inliers  = 0;
+        float outlier_ratio  = 0.f;
+
+        // optimizer type used in TrackLocalMap
+        // 0=PoseOptimization, 1=InertialLastFrame, 2=InertialLastKF
+        int opt_type = 0;
+
+        // KF / map
+        bool need_new_kf   = false;
+        bool new_kf_created = false;
+        int  total_kf_in_map = 0;
+        int  total_mp_in_map = 0;
+        int  local_map_mp_count = 0;
+        int  local_kf_count     = 0;
+        bool map_updated        = false;
+
+        // relocalization
+        bool reloc_attempted       = false;
+        bool reloc_success         = false;
+        int  reloc_candidates      = 0;
+        int  reloc_bow_pass        = 0;
+        int  reloc_pnp_inliers     = 0;
+
+        // IMU
+        bool imu_initialized = false;
+        bool imu_predicted   = false;
+        float bias_acc_norm  = 0.f;
+        float bias_gyro_norm = 0.f;
+
+        // timing (ms)
+        double preintegration_ms    = 0.0;
+        double pose_pred_ms         = 0.0;
+        double track_local_map_ms   = 0.0;
+        double need_new_kf_ms       = 0.0;
+        double total_tracking_ms    = 0.0;
+    };
+
+    FrameLog   mCurLog;          ///< reset every Track() call
+    ofstream   mFrameLogFile;    ///< per-frame CSV
+    bool       mbFrameLogInit = false;
+    double     mLogFirstTimestamp = -1.0; ///< timestamp of first logged frame (for rel_time_s)
+    void       InitFrameLog(const std::string &path = "tracking_log.csv");
+    // ── end Tracking Monitor ─────────────────────────────────────────────────
 
     GeometricCamera* mpCamera, *mpCamera2;
 
