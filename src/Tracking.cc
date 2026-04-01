@@ -148,38 +148,47 @@ void Tracking::InitFrameLog(const std::string &path)
     mbFrameLogInit = true;
     // Write CSV header
     mFrameLogFile <<
+    //基本資訊
         "frame_id,"
         "timestamp,"
         "rel_time_s,"
-        "state,"
-        "last_state,"
+    //系統狀態
+        "當前幀狀態,"
+        "上一幀狀態,"
         "tracking_method,"
-        "wider_window_used,"
+        // "wider_window_used,"
+    //匹配點數量
         "initial_matches,"
         "matches_before_tlm_opt,"
-        "outliers_before_tlm_opt,"
+        // "outliers_before_tlm_opt,"
         "matches_after_tlm_opt,"
-        "outliers_after_tlm_opt,"
+        // "outliers_after_tlm_opt,"
         "final_inliers,"
-        "outlier_ratio,"
-        "opt_type,"
+    //優化與品質評估
+        // "outlier_ratio,"
+        // "opt_type,"
+    //關鍵幀決策
         "need_new_kf,"
         "new_kf_created,"
+    //地圖統計
         "total_kf_in_map,"
         "total_mp_in_map,"
         "local_map_mp_count,"
         "local_kf_count,"
         "map_updated,"
+    //重定位狀態
         "reloc_attempted,"
         "reloc_success,"
         "reloc_candidates,"
         "reloc_bow_pass,"
         "reloc_pnp_inliers,"
+    //IMU狀態
         "imu_initialized,"
-        "imu_predicted,"
+        // "imu_predicted,"
         "bias_acc_norm,"
         "bias_gyro_norm,"
         "preintegration_ms,"
+    //時間統計
         "pose_pred_ms,"
         "track_local_map_ms,"
         "need_new_kf_ms,"
@@ -239,16 +248,16 @@ void Tracking::WriteFrameLog()
         << stateStr(L.state)             << ","
         << stateStr(L.last_state)        << ","
         << methodStr(L.tracking_method)  << ","
-        << yn(L.wider_window_used)       << ","
+        //<< yn(L.wider_window_used)       << ","
         << L.initial_matches             << ","
         << L.matches_before_tlm_opt      << ","
-        << L.outliers_before_tlm_opt     << ","
+        // << L.outliers_before_tlm_opt     << ","
         << L.matches_after_tlm_opt       << ","
-        << L.outliers_after_tlm_opt      << ","
+        // << L.outliers_after_tlm_opt      << ","
         << L.final_inliers               << ","
         << std::setprecision(4)
-        << L.outlier_ratio               << ","
-        << optStr(L.opt_type)            << ","
+        // << L.outlier_ratio               << ","
+        // << optStr(L.opt_type)            << ","
         << yn(L.need_new_kf)             << ","
         << yn(L.new_kf_created)          << ","
         << L.total_kf_in_map             << ","
@@ -262,7 +271,7 @@ void Tracking::WriteFrameLog()
         << L.reloc_bow_pass              << ","
         << L.reloc_pnp_inliers           << ","
         << yn(L.imu_initialized)         << ","
-        << yn(L.imu_predicted)           << ","
+        // << yn(L.imu_predicted)           << ","
         << std::setprecision(6)
         << L.bias_acc_norm               << ","
         << L.bias_gyro_norm              << ","
@@ -272,6 +281,7 @@ void Tracking::WriteFrameLog()
         << L.track_local_map_ms          << ","
         << L.need_new_kf_ms              << ","
         << L.total_tracking_ms           << "\n";
+if(L.frame_id % 1000 == 0)// flush every 30 frames
     mFrameLogFile.flush();
 }
 
@@ -3235,9 +3245,13 @@ bool Tracking::TrackLocalMap()
     for(int i=0; i<mCurrentFrame.N; i++)
         if( mCurrentFrame.mvpMapPoints[i])
         {
-            aux1++;
+            // aux1++;
+            // if(mCurrentFrame.mvbOutlier[i])
+            //     aux2++;
             if(mCurrentFrame.mvbOutlier[i])
                 aux2++;
+            else
+                aux1++;   // only count non-outliers
         }
 
     mCurLog.matches_after_tlm_opt  = aux1;   // [Monitor]
