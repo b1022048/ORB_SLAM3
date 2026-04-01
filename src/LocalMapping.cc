@@ -26,6 +26,7 @@
 
 #include<mutex>
 #include<chrono>
+#include<iomanip>
 
 namespace ORB_SLAM3
 {
@@ -49,6 +50,12 @@ LocalMapping::LocalMapping(System* pSys, Atlas *pAtlas, const float bMonocular, 
     nLBA_abort = 0;
 #endif
 
+    // Open per-iteration CSV log
+    mLMIteration = 0;
+    f_lm_csv.open("localmapping_log.csv");
+    f_lm_csv << "frame_id,timestamp_ms,"
+                "kf_insertion_ms,"
+                "map_points_total,new_map_points,queue_length\n";
 }
 
 void LocalMapping::SetLoopCloser(LoopClosing* pLoopCloser)
@@ -80,7 +87,10 @@ void LocalMapping::Run()
             std::chrono::steady_clock::time_point time_StartProcessKF = std::chrono::steady_clock::now();
 #endif
             // BoW conversion and insertion in Map
+            std::chrono::steady_clock::time_point csv_t0 = std::chrono::steady_clock::now();
             ProcessNewKeyFrame();
+            double csvKFInsert_ms = std::chrono::duration_cast<std::chrono::duration<double,std::milli>>(
+                std::chrono::steady_clock::now() - csv_t0).count();
 #ifdef REGISTER_TIMES
             std::chrono::steady_clock::time_point time_EndProcessKF = std::chrono::steady_clock::now();
 
@@ -255,6 +265,29 @@ void LocalMapping::Run()
             double timeLocalMap = std::chrono::duration_cast<std::chrono::duration<double,std::milli> >(time_EndLocalMap - time_StartProcessKF).count();
             vdLMTotal_ms.push_back(timeLocalMap);
 #endif
+
+            // Write CSV row
+            if(f_lm_csv.is_open())
+            {
+                auto csv_wall = std::chrono::system_clock::now();
+                long long ts_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    csv_wall.time_since_epoch()).count();
+
+                int queueLen;
+                {
+                    unique_lock<mutex> lk(mMutexNewKFs);
+                    queueLen = (int)mlNewKeyFrames.size();
+                }
+
+                f_lm_csv
+                    << ++mLMIteration                              << ","
+                    << ts_ms                                       << ","
+                    << std::fixed << std::setprecision(3)
+                    << csvKFInsert_ms                              << ","
+                    << (int)mpAtlas->MapPointsInMap()              << ","
+                    << (int)mlpRecentAddedMapPoints.size()         << ","
+                    << queueLen                                    << "\n";
+            }
         }
         else if(Stop() && !mbBadImu)
         {

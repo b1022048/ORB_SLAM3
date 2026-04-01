@@ -195,6 +195,10 @@ protected:
     //DEBUG
     ofstream f_lm;
 
+    // Per-iteration CSV log
+    ofstream f_lm_csv;
+    long     mLMIteration;
+
     };
 
 } //namespace ORB_SLAM

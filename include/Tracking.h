@@ -41,6 +41,7 @@
 
 #include <mutex>
 #include <unordered_set>
+
 namespace ORB_SLAM3
 {
 
@@ -51,9 +52,6 @@ class LocalMapping;
 class LoopClosing;
 class System;
 class Settings;
-
-
-
 
 class Tracking
 {  
@@ -259,16 +257,6 @@ protected:
     LocalMapping* mpLocalMapper;
     LoopClosing* mpLoopClosing;
 
-    // Watchdog variables
-    bool mbWatchdogEnabled;
-    double mTimeLastKeyframe;
-    int mnLastFrameID;
-    double mfMinFPS;
-    double mfMinInlierRatio;
-    double mfMaxBATime;
-    size_t mMemLimit;
-    std::mutex mWatchdogMutex;
-
     //ORB
     ORBextractor* mpORBextractorLeft, *mpORBextractorRight;
     ORBextractor* mpIniORBextractor;
@@ -354,6 +342,16 @@ protected:
     int mnNumDataset;
 
     ofstream f_track_stats;
+
+    // Per-iteration CSV log
+    ofstream f_track_csv;
+    double mPrevFrameTimestamp;  // timestamp of previous frame (before mLastFrame gets overwritten)
+    int    mLastTrackMethod;     // 0=MotionModel 1=RefKF 2=Reloc 3=PredictIMU -1=NA
+    bool   mbLastWasKF;          // whether current frame triggered a new KF
+    double mCsvPosePredMs;       // unconditional timing (no REGISTER_TIMES needed)
+    double mCsvLMTrackMs;
+    double mCsvNewKFDecMs;
+    void LogTrackingCSV();
 
     ofstream f_track_times;
     double mTime_PreIntIMU;
