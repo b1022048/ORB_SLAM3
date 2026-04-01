@@ -7,6 +7,13 @@
 # Unignore all dirs
 !*/
 
+
+# 忽略所有 csv log 檔案
+*_log.csv
+
+# 忽略資料集目錄 (Euroc 相關)
+data/
+
 CMakeLists.txt.user
 CMakeLists_modified.txt
 
