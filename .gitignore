@@ -9,7 +9,7 @@
 
 
 # 忽略所有 csv log 檔案
-*_log.csv
+
 *.txt
 # 忽略資料集目錄 (Euroc 相關)
 data/
