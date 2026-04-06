@@ -23,6 +23,7 @@
 #include <thread>
 #include <pangolin/pangolin.h>
 #include <iomanip>
+#include <sys/stat.h>
 #include <openssl/md5.h>
 #include <boost/serialization/base_object.hpp>
 #include <boost/serialization/string.hpp>
@@ -1503,6 +1504,61 @@ bool System::LoadAtlas(int type)
         return true;
     }
     return false;
+}
+
+void System::SaveMapPoints(const std::string& filename)
+{
+    // 確保 voxel/ 目錄存在
+    const std::string outDir = "voxel";
+    struct stat st{};
+    if (stat(outDir.c_str(), &st) != 0)
+        mkdir(outDir.c_str(), 0755);
+
+    const std::string outPath = outDir + "/" + filename;
+
+    std::ofstream f(outPath);
+    if (!f.is_open())
+    {
+        std::cerr << "[SaveMapPoints] Cannot open file: " << outPath << std::endl;
+        return;
+    }
+    f << std::fixed;
+
+    int totalPts = 0;
+    for (Map* pMap : mpAtlas->GetAllMaps())
+    {
+        if (!pMap)
+            continue;
+        for (MapPoint* pMP : pMap->GetAllMapPoints())
+        {
+            if (!pMP || pMP->isBad())
+                continue;
+            Eigen::Vector3f pos = pMP->GetWorldPos();
+            f << std::setprecision(9)
+              << pos(0) << "," << pos(1) << "," << pos(2) << "\n";
+            ++totalPts;
+        }
+    }
+    f.close();
+    std::cout << "[SaveMapPoints] Saved " << totalPts
+              << " points to " << outPath << std::endl;
+}
+
+void System::PrintMapPointCount() const
+{
+    int totalPts = 0;
+    for (Map* pMap : mpAtlas->GetAllMaps())
+    {
+        if (!pMap)
+            continue;
+        for (MapPoint* pMP : pMap->GetAllMapPoints())
+        {
+            if (!pMP || pMP->isBad())
+                continue;
+            ++totalPts;
+        }
+    }
+    std::cout << "[MapPoints] Total surviving map points: " << totalPts << std::endl;
 }
 
 string System::CalculateCheckSum(string filename, int type)
