@@ -52,10 +52,11 @@ LocalMapping::LocalMapping(System* pSys, Atlas *pAtlas, const float bMonocular, 
 
     // Open per-iteration CSV log
     mLMIteration = 0;
+    mCsvKFCulled  = 0;
     f_lm_csv.open("localmapping_log.csv");
     f_lm_csv << "frame_id,timestamp_ms,"
                 "kf_insertion_ms,"
-                "map_points_total,new_map_points,queue_length\n";
+                "map_points_total,new_map_points,queue_length,kf_culled\n";
 }
 
 void LocalMapping::SetLoopCloser(LoopClosing* pLoopCloser)
@@ -198,6 +199,7 @@ void LocalMapping::Run()
 
 
                 // Check redundant local Keyframes
+                mCsvKFCulled = 0;
                 KeyFrameCulling();
 
 #ifdef REGISTER_TIMES
@@ -286,7 +288,8 @@ void LocalMapping::Run()
                     << csvKFInsert_ms                              << ","
                     << (int)mpAtlas->MapPointsInMap()              << ","
                     << (int)mlpRecentAddedMapPoints.size()         << ","
-                    << queueLen                                    << "\n";
+                    << queueLen                                    << ","
+                    << mCsvKFCulled                                << "\n";
                 if(mLMIteration % 30 == 0)  // flush every 30 iterations
                     f_lm_csv.flush();
             }
@@ -315,6 +318,7 @@ void LocalMapping::Run()
 
     if(f_lm_csv.is_open())
     {
+        f_lm_csv << "#final_keyframes," << mpAtlas->KeyFramesInMap() << "\n";
         f_lm_csv.flush();
         f_lm_csv.close();
     }
@@ -1069,6 +1073,7 @@ void LocalMapping::KeyFrameCulling()
                         pKF->mNextKF = NULL;
                         pKF->mPrevKF = NULL;
                         pKF->SetBadFlag();
+                        ++mCsvKFCulled;
                     }
                     else if(!mpCurrentKeyFrame->GetMap()->GetIniertialBA2() && ((pKF->GetImuPosition()-pKF->mPrevKF->GetImuPosition()).norm()<0.02) && (t<3))
                     {
@@ -1078,12 +1083,14 @@ void LocalMapping::KeyFrameCulling()
                         pKF->mNextKF = NULL;
                         pKF->mPrevKF = NULL;
                         pKF->SetBadFlag();
+                        ++mCsvKFCulled;
                     }
                 }
             }
             else
             {
                 pKF->SetBadFlag();
+                ++mCsvKFCulled;
             }
         }
         if((count > 20 && mbAbortBA) || count>100)

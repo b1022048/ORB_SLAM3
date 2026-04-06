@@ -198,6 +198,7 @@ protected:
     // Per-iteration CSV log
     ofstream f_lm_csv;
     long     mLMIteration;
+    int      mCsvKFCulled;    // KFs culled in this iteration
 
     };
 

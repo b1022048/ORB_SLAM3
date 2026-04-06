@@ -281,7 +281,7 @@ void Tracking::WriteFrameLog()
         << L.track_local_map_ms          << ","
         << L.need_new_kf_ms              << ","
         << L.total_tracking_ms           << "\n";
-if(L.frame_id % 1000 == 0)// flush every 30 frames
+if(L.frame_id % 10 == 0)// flush every 30 frames
     mFrameLogFile.flush();
 }
 

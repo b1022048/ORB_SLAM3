@@ -65,17 +65,31 @@ EUROC_DATA = ROOT_DIR / "data/Euroc"
 #    stereo_inertial   : [cam1, imu_file]
 # ─────────────────────────────────────────────
 
-def _tum_extra_mono(mav0: Path) -> list:
+# 插在 times_file 之前的額外引數（僅 cam1）
+def _tum_pre_mono(mav0: Path) -> list:
     return []
 
-def _tum_extra_mono_inertial(mav0: Path) -> list:
-    return [str(mav0 / "imu0/data.csv")]
+def _tum_pre_mono_inertial(mav0: Path) -> list:
+    return []
 
-def _tum_extra_stereo(mav0: Path) -> list:
+def _tum_pre_stereo(mav0: Path) -> list:
     return [str(mav0 / "cam1/data")]
 
-def _tum_extra_stereo_inertial(mav0: Path) -> list:
-    return [str(mav0 / "cam1/data"), str(mav0 / "imu0/data.csv")]
+def _tum_pre_stereo_inertial(mav0: Path) -> list:
+    return [str(mav0 / "cam1/data")]
+
+# 插在 times_file 之後的額外引數（imu CSV）
+def _tum_post_mono(mav0: Path) -> list:
+    return []
+
+def _tum_post_mono_inertial(mav0: Path) -> list:
+    return [str(mav0 / "imu0/data.csv")]
+
+def _tum_post_stereo(mav0: Path) -> list:
+    return []
+
+def _tum_post_stereo_inertial(mav0: Path) -> list:
+    return [str(mav0 / "imu0/data.csv")]
 
 
 ALGO_CONFIGS: dict = {
@@ -88,7 +102,8 @@ ALGO_CONFIGS: dict = {
         "yaml_tum":     EXAMPLES / "Monocular/TUM-VI.yaml",
         "euroc_ts_dir": EXAMPLES / "Monocular/EuRoC_TimeStamps",
         "tum_ts_dir":   EXAMPLES / "Monocular/TUM_TimeStamps",
-        "tum_extra":    _tum_extra_mono,           # cam0 only
+        "tum_pre":      _tum_pre_mono,             # 插在 times 前
+        "tum_post":     _tum_post_mono,            # 插在 times 後
         "out_prefix_e": "mono_euroc",
         "out_prefix_t": "mono_tum",
         "evo_align":    "-as",                     # monocular: align + scale
@@ -102,7 +117,8 @@ ALGO_CONFIGS: dict = {
         "yaml_tum":     EXAMPLES / "Monocular-Inertial/TUM-VI.yaml",
         "euroc_ts_dir": EXAMPLES / "Monocular-Inertial/EuRoC_TimeStamps",
         "tum_ts_dir":   EXAMPLES / "Monocular-Inertial/TUM_TimeStamps",
-        "tum_extra":    _tum_extra_mono_inertial,  # cam0 + imu
+        "tum_pre":      _tum_pre_mono_inertial,    # 插在 times 前（無）
+        "tum_post":     _tum_post_mono_inertial,   # 插在 times 後（imu）
         "out_prefix_e": "mimu_euroc",
         "out_prefix_t": "mimu_tum",
         "evo_align":    "-a",                      # inertial: scale known, align only
@@ -116,7 +132,8 @@ ALGO_CONFIGS: dict = {
         "yaml_tum":     EXAMPLES / "Stereo/TUM-VI.yaml",
         "euroc_ts_dir": EXAMPLES / "Stereo/EuRoC_TimeStamps",
         "tum_ts_dir":   EXAMPLES / "Stereo/TUM_TimeStamps",
-        "tum_extra":    _tum_extra_stereo,         # cam0 + cam1
+        "tum_pre":      _tum_pre_stereo,           # 插在 times 前（cam1）
+        "tum_post":     _tum_post_stereo,          # 插在 times 後（無）
         "out_prefix_e": "se_euroc",
         "out_prefix_t": "se_tum",
         "evo_align":    "-a",                      # stereo: align only
@@ -130,7 +147,8 @@ ALGO_CONFIGS: dict = {
         "yaml_tum":     EXAMPLES / "Stereo-Inertial/TUM-VI.yaml",
         "euroc_ts_dir": EXAMPLES / "Stereo-Inertial/EuRoC_TimeStamps",
         "tum_ts_dir":   EXAMPLES / "Stereo-Inertial/TUM_TimeStamps",
-        "tum_extra":    _tum_extra_stereo_inertial, # cam0 + cam1 + imu
+        "tum_pre":      _tum_pre_stereo_inertial,  # 插在 times 前（cam1）
+        "tum_post":     _tum_post_stereo_inertial, # 插在 times 後（imu）
         "out_prefix_e": "stereo_euroc",
         "out_prefix_t": "stereo_tum",
         "evo_align":    "-a",                      # stereo: align only
@@ -338,7 +356,8 @@ def run_tum(cfg: dict, category: str, seq_name: str, seq_suffix: str) -> dict:
     times_file = cfg["tum_ts_dir"] / f"dataset-{seq_name}_512.txt"
     gt_csv     = str(mav0 / "mocap0/data.csv")
     binary     = cfg["bin_dir"] / cfg["bin_tum"]
-    extra_args = cfg["tum_extra"](mav0)  # 依演算法插入額外引數
+    pre_args  = cfg["tum_pre"](mav0)   # times_file 之前（cam1）
+    post_args = cfg["tum_post"](mav0)  # times_file 之後（imu）
 
     for p, label in [(binary, "執行檔"), (cam0, "cam0"),
                      (times_file, "timestamps"), (Path(gt_csv), "Ground truth")]:
@@ -347,13 +366,14 @@ def run_tum(cfg: dict, category: str, seq_name: str, seq_suffix: str) -> dict:
             log(f"  [SKIP] {p}")
             return entry
 
-    for extra_p in extra_args:
+    for extra_p in pre_args + post_args:
         if not Path(extra_p).exists():
             entry["note"] = f"額外引數路徑不存在: {extra_p}"
             log(f"  [SKIP] {extra_p}")
             return entry
 
-    cmd = [binary, VOCAB, cfg["yaml_tum"], cam0] + extra_args + [times_file, output_name]
+    # 正確順序：cam0  [cam1]  times_file  [imu]  output_name
+    cmd = [binary, VOCAB, cfg["yaml_tum"], cam0] + pre_args + [times_file] + post_args + [output_name]
     stdout, stderr, rc = run_cmd(cmd, cwd=ROOT_DIR)
     if rc != 0:
         entry["note"] = f"{cfg['bin_tum']} 回傳 {rc}"
