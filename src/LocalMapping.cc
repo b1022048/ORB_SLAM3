@@ -287,6 +287,8 @@ void LocalMapping::Run()
                     << (int)mpAtlas->MapPointsInMap()              << ","
                     << (int)mlpRecentAddedMapPoints.size()         << ","
                     << queueLen                                    << "\n";
+                if(mLMIteration % 30 == 0)  // flush every 30 iterations
+                    f_lm_csv.flush();
             }
         }
         else if(Stop() && !mbBadImu)
@@ -311,6 +313,11 @@ void LocalMapping::Run()
         usleep(3000);
     }
 
+    if(f_lm_csv.is_open())
+    {
+        f_lm_csv.flush();
+        f_lm_csv.close();
+    }
     SetFinish();
 }
 
