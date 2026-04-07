@@ -153,6 +153,7 @@ int main(int argc, char **argv)
 
     // Save camera trajectory
     SLAM.SaveTrajectoryKITTI("CameraTrajectory.txt");
+    SLAM.SaveMapPoints("mappoints.txt");
 
     return 0;
 }

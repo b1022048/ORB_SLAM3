@@ -257,11 +257,13 @@ int main(int argc, char **argv)
         const string f_file =  "f_" + string(argv[argc-1]) + ".txt";
         SLAM.SaveTrajectoryEuRoC(f_file);
         SLAM.SaveKeyFrameTrajectoryEuRoC(kf_file);
+        SLAM.SaveMapPoints(string(argv[argc-1]) + "_mappoints.txt");
     }
     else
     {
         SLAM.SaveTrajectoryEuRoC("CameraTrajectory.txt");
         SLAM.SaveKeyFrameTrajectoryEuRoC("KeyFrameTrajectory.txt");
+        SLAM.SaveMapPoints("mappoints.txt");
     }
 
     sort(vTimesTrack.begin(),vTimesTrack.end());
