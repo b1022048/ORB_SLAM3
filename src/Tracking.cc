@@ -196,6 +196,15 @@ void Tracking::InitFrameLog(const std::string &path)
     mFrameLogFile.flush();
 }
 
+void Tracking::CloseFrameLog()
+{
+    if(mFrameLogFile.is_open())
+    {
+        mFrameLogFile.flush();
+        mFrameLogFile.close();
+    }
+}
+
 void Tracking::WriteFrameLog()
 {
     if(!mbFrameLogInit) return;
@@ -686,7 +695,7 @@ void Tracking::PrintTimeStats()
 Tracking::~Tracking()
 {
     //f_track_stats.close();
-
+    CloseFrameLog();
 }
 
 void Tracking::newParameterLoader(Settings *settings) {
@@ -2622,6 +2631,8 @@ void Tracking::StereoInitialization()
                     pKFini->AddMapPoint(pNewMP,i);
                     pNewMP->ComputeDistinctiveDescriptors();
                     pNewMP->UpdateNormalAndDepth();
+                    if(i < (int)mCurrentFrame.mvGrayValues.size())
+                        pNewMP->mGray = mCurrentFrame.mvGrayValues[i];
                     mpAtlas->AddMapPoint(pNewMP);
 
                     mCurrentFrame.mvpMapPoints[i]=pNewMP;
@@ -2643,6 +2654,8 @@ void Tracking::StereoInitialization()
 
                     pNewMP->ComputeDistinctiveDescriptors();
                     pNewMP->UpdateNormalAndDepth();
+                    if(i < (int)mCurrentFrame.mvGrayValues.size())
+                        pNewMP->mGray = mCurrentFrame.mvGrayValues[i];
                     mpAtlas->AddMapPoint(pNewMP);
 
                     mCurrentFrame.mvpMapPoints[i]=pNewMP;
@@ -2791,6 +2804,9 @@ void Tracking::CreateInitialMapMonocular()
 
         pMP->ComputeDistinctiveDescriptors();
         pMP->UpdateNormalAndDepth();
+
+        if(mvIniMatches[i] >= 0 && mvIniMatches[i] < (int)mCurrentFrame.mvGrayValues.size())
+            pMP->mGray = mCurrentFrame.mvGrayValues[mvIniMatches[i]];
 
         //Fill Current Frame structure
         mCurrentFrame.mvpMapPoints[mvIniMatches[i]] = pMP;
@@ -3070,6 +3086,8 @@ void Tracking::UpdateLastFrame()
             }
 
             MapPoint* pNewMP = new MapPoint(x3D,mpAtlas->GetCurrentMap(),&mLastFrame,i);
+            if(i < (int)mLastFrame.mvGrayValues.size())
+                pNewMP->mGray = mLastFrame.mvGrayValues[i];
             mLastFrame.mvpMapPoints[i]=pNewMP;
 
             mlpTemporalPoints.push_back(pNewMP);
@@ -3568,6 +3586,8 @@ void Tracking::CreateNewKeyFrame()
                     pKF->AddMapPoint(pNewMP,i);
                     pNewMP->ComputeDistinctiveDescriptors();
                     pNewMP->UpdateNormalAndDepth();
+                    if(i < (int)mCurrentFrame.mvGrayValues.size())
+                        pNewMP->mGray = mCurrentFrame.mvGrayValues[i];
                     mpAtlas->AddMapPoint(pNewMP);
 
                     mCurrentFrame.mvpMapPoints[i]=pNewMP;

@@ -110,6 +110,7 @@ public:
     float GetImageScale();
 
     void WriteFrameLog();
+    void CloseFrameLog();
 
 #ifdef REGISTER_LOOP
     void RequestStop();
