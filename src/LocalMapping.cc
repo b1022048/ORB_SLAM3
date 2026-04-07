@@ -736,6 +736,8 @@ void LocalMapping::CreateNewMapPoints()
 
             // Triangulation is succesfull
             MapPoint* pMP = new MapPoint(x3D, mpCurrentKeyFrame, mpAtlas->GetCurrentMap());
+            if(idx1 >= 0 && idx1 < (int)mpCurrentKeyFrame->mvGrayValues.size())//將當前 KeyFrame（關鍵幀）中的灰度值 (Gray-scale value) 同步給 MapPoint（地圖點）
+                pMP->mGray = mpCurrentKeyFrame->mvGrayValues[idx1];
             if (bPointStereo)
                 countStereo++;
             
