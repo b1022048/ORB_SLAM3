@@ -217,6 +217,9 @@ def run_cmd(cmd: list, cwd=None, timeout: int = 7200):
 def parse_evo_rmse(stdout: str, stderr: str) -> float | None:
     """從 evo_ape 輸出解析 RMSE 數值"""
     combined = stdout + stderr
+    print("=== evo_ape raw output ===")
+    print(combined[:1000])          # ← 加這行看原始輸出
+    print("=========================")
     match = re.search(r'rmse\s+([\d.eE+\-]+)', combined)
     if match:
         return float(match.group(1))
