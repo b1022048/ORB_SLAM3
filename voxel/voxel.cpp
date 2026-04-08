@@ -10,8 +10,11 @@
 #include <string>
 #include <cstdint>
 #include <sstream>
-#include <algorithm> 
+#include <algorithm>
+#include <unordered_map>
 #define scalefactor 0.05
+#define VOXEL_SIZE 0.05f
+#define FORCE_WHITE true
 
 
 using namespace std;
@@ -185,6 +188,8 @@ int main(int argc, char* argv[])
 
 
 
+	// --- 讀取原始點雲 ---
+	vector<XYZ_RGB_t> raw_points;
 	XYZ_RGB_t data;
 	ifstream infile2(input_path);
 	if (!infile2.is_open()) {
@@ -197,7 +202,7 @@ int main(int argc, char* argv[])
 	bool format_detected = false;
 	while (getline(infile2, line)) {
 		if (line.empty()) continue;
-       replace(line.begin(), line.end(), ',', ' ');  // ← 加這行中間的逗號替換成空格，方便解析
+		replace(line.begin(), line.end(), ',', ' ');
 		istringstream iss(line);
 		float v[6];
 		int count = 0;
@@ -218,15 +223,60 @@ int main(int argc, char* argv[])
 		if (has_rgb) {
 			data.R = (unsigned char)v[3]; data.G = (unsigned char)v[4]; data.B = (unsigned char)v[5];
 		} else if (has_gray) {
-			unsigned char g = (unsigned char)v[3];
+			unsigned char g = FORCE_WHITE ? 255 : (unsigned char)v[3];
 			data.R = g; data.G = g; data.B = g;
 		} else {
 			data.R = 200; data.G = 200; data.B = 200;
 		}
-		volume_t.push_back(data);
+		raw_points.push_back(data);
 	}
 	infile2.close();
-	cout << "讀取完成，共 " << volume_t.size() << " 個點。" << endl;
+	cout << "讀取完成，共 " << raw_points.size() << " 個原始點。" << endl;
+
+	// --- Voxel Downsampling ---
+	cout << "正在進行 Voxel 降採樣 (VOXEL_SIZE = " << VOXEL_SIZE << ")..." << endl;
+	struct VoxelKey {
+		int ix, iy, iz;
+		bool operator==(const VoxelKey& o) const {
+			return ix == o.ix && iy == o.iy && iz == o.iz;
+		}
+	};
+	struct VoxelKeyHash {
+		size_t operator()(const VoxelKey& k) const {
+			size_t h = 0;
+			h ^= hash<int>()(k.ix) + 0x9e3779b9 + (h << 6) + (h >> 2);
+			h ^= hash<int>()(k.iy) + 0x9e3779b9 + (h << 6) + (h >> 2);
+			h ^= hash<int>()(k.iz) + 0x9e3779b9 + (h << 6) + (h >> 2);
+			return h;
+		}
+	};
+	struct VoxelAccum {
+		double sx=0, sy=0, sz=0, sr=0, sg=0, sb=0;
+		int count=0;
+	};
+	unordered_map<VoxelKey, VoxelAccum, VoxelKeyHash> voxel_map;
+	for (auto& pt : raw_points) {
+		VoxelKey key;
+		key.ix = (int)floor(pt.X / VOXEL_SIZE);
+		key.iy = (int)floor(pt.Y / VOXEL_SIZE);
+		key.iz = (int)floor(pt.Z / VOXEL_SIZE);
+		auto& acc = voxel_map[key];
+		acc.sx += pt.X; acc.sy += pt.Y; acc.sz += pt.Z;
+		acc.sr += pt.R; acc.sg += pt.G; acc.sb += pt.B;
+		acc.count++;
+	}
+	for (auto& kv : voxel_map) {
+		auto& acc = kv.second;
+		XYZ_RGB_t p;
+		p.X = (float)(acc.sx / acc.count);
+		p.Y = (float)(acc.sy / acc.count);
+		p.Z = (float)(acc.sz / acc.count);
+		p.R = (unsigned char)(acc.sr / acc.count);
+		p.G = (unsigned char)(acc.sg / acc.count);
+		p.B = (unsigned char)(acc.sb / acc.count);
+		volume_t.push_back(p);
+	}
+	cout << "降採樣完成，剩下 " << volume_t.size() << " 個 Voxel。" << endl;
 
 
 
