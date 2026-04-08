@@ -27,6 +27,7 @@
 #include<mutex>
 #include<chrono>
 #include<iomanip>
+#include<algorithm>
 
 namespace ORB_SLAM3
 {
@@ -54,7 +55,7 @@ LocalMapping::LocalMapping(System* pSys, Atlas *pAtlas, const float bMonocular, 
     mLMIteration = 0;
     mCsvKFCulled  = 0;
     f_lm_csv.open("localmapping_log.csv");
-    f_lm_csv << "frame_id,timestamp_ms,"
+    f_lm_csv << "localmappingnumber,kf_id,track_frame_id,timestamp_ms,"
                 "kf_insertion_ms,"
                 "map_points_total,new_map_points,queue_length,kf_culled\n";
 }
@@ -283,6 +284,8 @@ void LocalMapping::Run()
 
                 f_lm_csv
                     << ++mLMIteration                              << ","
+                    << (long long)mpCurrentKeyFrame->mnId           << ","
+                    << (long long)mpCurrentKeyFrame->mnFrameId      << ","
                     << ts_ms                                       << ","
                     << std::fixed << std::setprecision(3)
                     << csvKFInsert_ms                              << ","
@@ -319,6 +322,14 @@ void LocalMapping::Run()
     if(f_lm_csv.is_open())
     {
         f_lm_csv << "#final_keyframes," << mpAtlas->KeyFramesInMap() << "\n";
+        // Write surviving KF list
+        f_lm_csv << "#survive_kf_id,survive_track_frame_id\n";
+        auto vpSurvived = mpAtlas->GetAllKeyFrames();
+        std::sort(vpSurvived.begin(), vpSurvived.end(),
+            [](KeyFrame* a, KeyFrame* b){ return a->mnId < b->mnId; });
+        for(auto* pKF : vpSurvived)
+            if(pKF && !pKF->isBad())
+                f_lm_csv << pKF->mnId << "," << pKF->mnFrameId << "\n";
         f_lm_csv.flush();
         f_lm_csv.close();
     }
