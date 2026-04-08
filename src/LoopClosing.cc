@@ -27,6 +27,8 @@
 
 #include<mutex>
 #include<thread>
+#include<chrono>
+#include<iomanip>
 
 
 namespace ORB_SLAM3
@@ -74,6 +76,21 @@ LoopClosing::LoopClosing(Atlas *pAtlas, KeyFrameDatabase *pDB, ORBVocabulary *pV
     mstrFolderSubTraj = "SubTrajectories/";
     mnNumCorrection = 0;
     mnCorrectionGBA = 0;
+
+    // Open loop-closing CSV log
+    mLcCsv.open("loop_closing_log.csv");
+    if(mLcCsv.is_open())
+    {
+        mLcCsv << "event_type,status,timestamp,current_kf_id,matched_kf_id,"
+                  "sim3_scale,rot_x,rot_y,rot_z,rot_w,"
+                  "trans_x,trans_y,trans_z,"
+                  "inliers,reprojection_error,"
+                  "detection_ms,optimization_ms,scale_delta\n";
+    }
+    else
+    {
+        std::cerr << "[LoopClosing] WARNING: cannot open loop_closing_log.csv\n";
+    }
 }
 
 void LoopClosing::SetTracker(Tracking *pTracker)
@@ -86,6 +103,51 @@ void LoopClosing::SetLocalMapper(LocalMapping *pLocalMapper)
     mpLocalMapper=pLocalMapper;
 }
 
+
+// ── CSV helper ─────────────────────────────────────────────────────────────────
+void LoopClosing::WriteLoopLog(const std::string& event_type,
+                               const std::string& status,
+                               double             timestamp,
+                               long unsigned int  current_kf_id,
+                               long unsigned int  matched_kf_id,
+                               const g2o::Sim3&   sim3,
+                               int                inliers,
+                               double             reprojection_error,
+                               double             detection_ms,
+                               double             optimization_ms)
+{
+    unique_lock<std::mutex> lock(mMutexLcCsv);
+    if(!mLcCsv.is_open()) return;
+
+    double scale       = sim3.scale();
+    Eigen::Quaterniond q = sim3.rotation();
+    Eigen::Vector3d    t = sim3.translation();
+    double scale_delta = scale - 1.0;
+
+    mLcCsv << std::fixed << std::setprecision(6)
+           << event_type          << ","
+           << status              << ","
+           << timestamp           << ","
+           << current_kf_id       << ","
+           << matched_kf_id       << ","
+           << scale               << ","
+           << q.x()               << ","
+           << q.y()               << ","
+           << q.z()               << ","
+           << q.w()               << ","
+           << t.x()               << ","
+           << t.y()               << ","
+           << t.z()               << ","
+           << inliers             << ","
+           << reprojection_error  << ","
+           << std::setprecision(3)
+           << detection_ms        << ","
+           << optimization_ms     << ","
+           << std::setprecision(6)
+           << scale_delta         << "\n";
+    mLcCsv.flush();
+}
+// ─────────────────────────────────────────────────────────────────────────
 
 void LoopClosing::Run()
 {
@@ -108,8 +170,11 @@ void LoopClosing::Run()
 #ifdef REGISTER_TIMES
             std::chrono::steady_clock::time_point time_StartPR = std::chrono::steady_clock::now();
 #endif
-
+            // ── detection timing ──
+            auto csv_det_t0 = std::chrono::steady_clock::now();
             bool bFindedRegion = NewDetectCommonRegions();
+            double csv_detection_ms = std::chrono::duration_cast<std::chrono::duration<double,std::milli>>(
+                std::chrono::steady_clock::now() - csv_det_t0).count();
 
 #ifdef REGISTER_TIMES
             std::chrono::steady_clock::time_point time_EndPR = std::chrono::steady_clock::now();
@@ -150,6 +215,13 @@ void LoopClosing::Run()
                                 mnMergeNumNotFound = 0;
                                 mbMergeDetected = false;
                                 Verbose::PrintMess("scale bad estimated. Abort merging", Verbose::VERBOSITY_NORMAL);
+                                WriteLoopLog("MAP_MERGE", "FAILED",
+                                             mpCurrentKF->mTimeStamp,
+                                             mpCurrentKF->mnId,
+                                             mpMergeMatchedKF->mnId,
+                                             mSold_new,
+                                             mnMergeNumCoincidences, -1.0,
+                                             csv_detection_ms, 0.0);
                                 continue;
                             }
                             // If inertial, force only yaw
@@ -176,11 +248,22 @@ void LoopClosing::Run()
 
                         nMerges += 1;
 #endif
+                        auto csv_merge_t0 = std::chrono::steady_clock::now();
                         // TODO UNCOMMENT
                         if (mpTracker->mSensor==System::IMU_MONOCULAR ||mpTracker->mSensor==System::IMU_STEREO || mpTracker->mSensor==System::IMU_RGBD)
                             MergeLocal2();
                         else
                             MergeLocal();
+                        double csv_merge_ms = std::chrono::duration_cast<std::chrono::duration<double,std::milli>>(
+                            std::chrono::steady_clock::now() - csv_merge_t0).count();
+
+                        WriteLoopLog("MAP_MERGE", "SUCCESS",
+                                     mpCurrentKF->mTimeStamp,
+                                     mpCurrentKF->mnId,
+                                     mpMergeMatchedKF->mnId,
+                                     mg2oMergeScw,
+                                     mnMergeNumCoincidences, -1.0,
+                                     csv_detection_ms, csv_merge_ms);
 
 #ifdef REGISTER_TIMES
                         std::chrono::steady_clock::time_point time_EndMerge = std::chrono::steady_clock::now();
@@ -257,6 +340,13 @@ void LoopClosing::Run()
                         {
                             cout << "BAD LOOP!!!" << endl;
                             bGoodLoop = false;
+                            WriteLoopLog("LOOP_CLOSURE", "FAILED",
+                                         mpCurrentKF->mTimeStamp,
+                                         mpCurrentKF->mnId,
+                                         mpLoopMatchedKF->mnId,
+                                         mg2oLoopScw,
+                                         mnLoopNumCoincidences, -1.0,
+                                         csv_detection_ms, 0.0);
                         }
 
                     }
@@ -271,7 +361,18 @@ void LoopClosing::Run()
                         nLoop += 1;
 
 #endif
+                        auto csv_loop_t0 = std::chrono::steady_clock::now();
                         CorrectLoop();
+                        double csv_loop_ms = std::chrono::duration_cast<std::chrono::duration<double,std::milli>>(
+                            std::chrono::steady_clock::now() - csv_loop_t0).count();
+
+                        WriteLoopLog("LOOP_CLOSURE", "SUCCESS",
+                                     mpCurrentKF->mTimeStamp,
+                                     mpCurrentKF->mnId,
+                                     mpLoopMatchedKF->mnId,
+                                     mg2oLoopScw,
+                                     mnLoopNumCoincidences, -1.0,
+                                     csv_detection_ms, csv_loop_ms);
 #ifdef REGISTER_TIMES
                         std::chrono::steady_clock::time_point time_EndLoop = std::chrono::steady_clock::now();
 
@@ -2525,6 +2626,11 @@ bool LoopClosing::CheckFinish()
 
 void LoopClosing::SetFinish()
 {
+    if(mLcCsv.is_open())
+    {
+        mLcCsv.flush();
+        mLcCsv.close();
+    }
     unique_lock<mutex> lock(mMutexFinish);
     mbFinished = true;
 }

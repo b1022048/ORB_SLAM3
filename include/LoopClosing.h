@@ -31,6 +31,7 @@
 #include <boost/algorithm/string.hpp>
 #include <thread>
 #include <mutex>
+#include <fstream>
 #include "Thirdparty/g2o/g2o/types/types_seven_dof_expmap.h"
 
 namespace ORB_SLAM3
@@ -243,6 +244,21 @@ protected:
 #ifdef REGISTER_LOOP
     string mstrFolderLoop;
 #endif
+
+    // ── CSV loop-closing logger ────────────────────────────────────────────
+    void WriteLoopLog(const std::string& event_type,
+                      const std::string& status,
+                      double             timestamp,
+                      long unsigned int  current_kf_id,
+                      long unsigned int  matched_kf_id,
+                      const g2o::Sim3&   sim3,
+                      int                inliers,
+                      double             reprojection_error,
+                      double             detection_ms,
+                      double             optimization_ms);
+    std::ofstream mLcCsv;
+    std::mutex    mMutexLcCsv;
+    // ──────────────────────────────────────────────────────────────────────
 };
 
 } //namespace ORB_SLAM

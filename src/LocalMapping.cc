@@ -52,12 +52,17 @@ LocalMapping::LocalMapping(System* pSys, Atlas *pAtlas, const float bMonocular, 
 #endif
 
     // Open per-iteration CSV log
-    mLMIteration = 0;
-    mCsvKFCulled  = 0;
+    mLMIteration     = 0;
+    mCsvKFCulled     = 0;
+    mCsvMeanReprojErr = 0.0;
+    mCsvMaxReprojErr  = 0.0;
+    mCsvOptimMs       = 0.0;
     f_lm_csv.open("localmapping_log.csv");
     f_lm_csv << "localmappingnumber,kf_id,track_frame_id,timestamp_ms,"
                 "kf_insertion_ms,"
-                "map_points_total,new_map_points,queue_length,kf_culled\n";
+                "map_points_total,new_map_points,queue_length,kf_culled,"
+                "mean_reprojection_error,max_reprojection_error,"
+                "optimization_time_ms,tracking_lost\n";
 }
 
 void LocalMapping::SetLoopCloser(LoopClosing* pLoopCloser)
@@ -132,11 +137,15 @@ void LocalMapping::Run()
             int num_OptKF_BA = 0;
             int num_MPs_BA = 0;
             int num_edges_BA = 0;
+            mCsvOptimMs       = 0.0;
+            mCsvMeanReprojErr = 0.0;
+            mCsvMaxReprojErr  = 0.0;
 
             if(!CheckNewKeyFrames() && !stopRequested())
             {
                 if(mpAtlas->KeyFramesInMap()>2)
                 {
+                    auto csv_ba_t0 = std::chrono::steady_clock::now();
 
                     if(mbInertial && mpCurrentKeyFrame->GetMap()->isImuInitialized())
                     {
@@ -167,6 +176,11 @@ void LocalMapping::Run()
                         b_doneLBA = true;
                     }
 
+                    mCsvOptimMs = std::chrono::duration_cast<std::chrono::duration<double,std::milli>>(
+                        std::chrono::steady_clock::now() - csv_ba_t0).count();
+
+                    if(b_doneLBA && !mbAbortBA)
+                        ComputeLocalWindowReprojErrors(mCsvMeanReprojErr, mCsvMaxReprojErr);
                 }
 #ifdef REGISTER_TIMES
                 std::chrono::steady_clock::time_point time_EndLBA = std::chrono::steady_clock::now();
@@ -282,6 +296,10 @@ void LocalMapping::Run()
                     queueLen = (int)mlNewKeyFrames.size();
                 }
 
+                int csvTrackingLost = (mpTracker &&
+                    (mpTracker->mState == Tracking::LOST ||
+                     mpTracker->mState == Tracking::RECENTLY_LOST)) ? 1 : 0;
+
                 f_lm_csv
                     << ++mLMIteration                              << ","
                     << (long long)mpCurrentKeyFrame->mnId           << ","
@@ -292,7 +310,13 @@ void LocalMapping::Run()
                     << (int)mpAtlas->MapPointsInMap()              << ","
                     << (int)mlpRecentAddedMapPoints.size()         << ","
                     << queueLen                                    << ","
-                    << mCsvKFCulled                                << "\n";
+                    << mCsvKFCulled                                << ","
+                    << std::setprecision(4)
+                    << mCsvMeanReprojErr                           << ","
+                    << mCsvMaxReprojErr                            << ","
+                    << std::setprecision(3)
+                    << mCsvOptimMs                                 << ","
+                    << csvTrackingLost                             << "\n";
                 if(mLMIteration % 30 == 0)  // flush every 30 iterations
                     f_lm_csv.flush();
             }
@@ -1577,6 +1601,59 @@ double LocalMapping::GetCurrKFTime()
 KeyFrame* LocalMapping::GetCurrKF()
 {
     return mpCurrentKeyFrame;
+}
+
+void LocalMapping::ComputeLocalWindowReprojErrors(double &mean_err, double &max_err)
+{
+    mean_err = 0.0;
+    max_err  = 0.0;
+    if(!mpCurrentKeyFrame) return;
+
+    // Local window: current KF + its best covisible KFs
+    vector<KeyFrame*> vpLocalKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(10);
+    vpLocalKFs.push_back(mpCurrentKeyFrame);
+
+    double sum_err = 0.0;
+    int    count   = 0;
+
+    for(KeyFrame* pKF : vpLocalKFs)
+    {
+        if(!pKF || pKF->isBad()) continue;
+
+        Sophus::SE3f Tcw = pKF->GetPose();
+        const float fx = pKF->fx, fy = pKF->fy;
+        const float cx = pKF->cx, cy = pKF->cy;
+
+        const vector<MapPoint*> vpMPs = pKF->GetMapPointMatches();
+        // For stereo/fisheye rigs, only consider the left camera keypoints
+        int nLeft = (pKF->NLeft == -1) ? (int)vpMPs.size() : pKF->NLeft;
+
+        for(int i = 0; i < nLeft && i < (int)vpMPs.size(); ++i)
+        {
+            MapPoint* pMP = vpMPs[i];
+            if(!pMP || pMP->isBad()) continue;
+
+            Eigen::Vector3f Pw = pMP->GetWorldPos();
+            Eigen::Vector3f Pc = Tcw * Pw;
+            if(Pc(2) <= 0.0f) continue;
+
+            float invz = 1.0f / Pc(2);
+            float u = fx * Pc(0) * invz + cx;
+            float v = fy * Pc(1) * invz + cy;
+
+            const cv::KeyPoint& kp = pKF->mvKeysUn[i];
+            float du = u - kp.pt.x;
+            float dv = v - kp.pt.y;
+            double err = std::sqrt((double)(du*du + dv*dv));
+
+            sum_err += err;
+            if(err > max_err) max_err = err;
+            ++count;
+        }
+    }
+
+    if(count > 0)
+        mean_err = sum_err / count;
 }
 
 } //namespace ORB_SLAM

@@ -139,6 +139,8 @@ protected:
     void SearchInNeighbors();
     void KeyFrameCulling();
 
+    void ComputeLocalWindowReprojErrors(double &mean_err, double &max_err);
+
     System *mpSystem;
 
     bool mbMonocular;
@@ -199,6 +201,9 @@ protected:
     ofstream f_lm_csv;
     long     mLMIteration;
     int      mCsvKFCulled;    // KFs culled in this iteration
+    double   mCsvMeanReprojErr;
+    double   mCsvMaxReprojErr;
+    double   mCsvOptimMs;
 
     };
 
