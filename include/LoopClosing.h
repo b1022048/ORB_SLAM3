@@ -119,6 +119,17 @@ public:
 
 protected:
 
+    // ── Pipeline stats struct (must be declared before method decls that use it) ──
+    struct LcPipelineStats {
+        int bow_candidates      = 0;
+        int max_bow_matches     = 0;
+        int sim3_ransac_inliers = 0;
+        int proj_matches_coarse = 0;
+        int sim3_opt_inliers    = 0;
+        int proj_matches_fine   = 0;
+        int coincidences        = 0;
+    };
+
     bool CheckNewKeyFrames();
 
 
@@ -127,7 +138,8 @@ protected:
     bool DetectAndReffineSim3FromLastKF(KeyFrame* pCurrentKF, KeyFrame* pMatchedKF, g2o::Sim3 &gScw, int &nNumProjMatches,
                                         std::vector<MapPoint*> &vpMPs, std::vector<MapPoint*> &vpMatchedMPs);
     bool DetectCommonRegionsFromBoW(std::vector<KeyFrame*> &vpBowCand, KeyFrame* &pMatchedKF, KeyFrame* &pLastCurrentKF, g2o::Sim3 &g2oScw,
-                                     int &nNumCoincidences, std::vector<MapPoint*> &vpMPs, std::vector<MapPoint*> &vpMatchedMPs);
+                                     int &nNumCoincidences, std::vector<MapPoint*> &vpMPs, std::vector<MapPoint*> &vpMatchedMPs,
+                                     LcPipelineStats &outStats);
     bool DetectCommonRegionsFromLastKF(KeyFrame* pCurrentKF, KeyFrame* pMatchedKF, g2o::Sim3 &gScw, int &nNumProjMatches,
                                             std::vector<MapPoint*> &vpMPs, std::vector<MapPoint*> &vpMatchedMPs);
     int FindMatchesByProjection(KeyFrame* pCurrentKF, KeyFrame* pMatchedKFw, g2o::Sim3 &g2oScw,
@@ -246,16 +258,19 @@ protected:
 #endif
 
     // ── CSV loop-closing logger ────────────────────────────────────────────
-    void WriteLoopLog(const std::string& event_type,
-                      const std::string& status,
-                      double             timestamp,
-                      long unsigned int  current_kf_id,
-                      long unsigned int  matched_kf_id,
-                      const g2o::Sim3&   sim3,
-                      int                inliers,
-                      double             reprojection_error,
-                      double             detection_ms,
-                      double             optimization_ms);
+    void WriteLoopLog(const std::string&     event_type,
+                      const std::string&     status,
+                      double                 timestamp,
+                      long unsigned int      current_kf_id,
+                      long long int          matched_kf_id,
+                      const LcPipelineStats& stats,
+                      const g2o::Sim3&       sim3,
+                      int                    inliers,
+                      double                 reprojection_error,
+                      double                 detection_ms,
+                      double                 optimization_ms);
+    LcPipelineStats mLastLoopDetStats;
+    LcPipelineStats mLastMergeDetStats;
     std::ofstream mLcCsv;
     std::mutex    mMutexLcCsv;
     // ──────────────────────────────────────────────────────────────────────
