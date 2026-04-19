@@ -52,8 +52,9 @@ VOCAB       = ROOT_DIR / "Vocabulary/ORBvoc.txt"
 EXAMPLES    = ROOT_DIR / "Examples"
 FIX_TIME_PY = SCRIPT_DIR / "fix_time.py"
 
-TUM_DATA   = ROOT_DIR / "data/TUM"
-EUROC_DATA = ROOT_DIR / "data/Euroc"
+TUM_DATA         = ROOT_DIR / "/media/lab405/Windows1/data/TUM"
+EUROC_DATA       = ROOT_DIR / "/media/lab405/Windows1/data/Euroc"
+EVALUATE_ATE_PY  = SCRIPT_DIR / "evaluate_ate_scale.py"
 
 # ─────────────────────────────────────────────
 #  演算法設定
@@ -134,8 +135,8 @@ ALGO_CONFIGS: dict = {
         "tum_ts_dir":   EXAMPLES / "Stereo/TUM_TimeStamps",
         "tum_pre":      _tum_pre_stereo,           # 插在 times 前（cam1）
         "tum_post":     _tum_post_stereo,          # 插在 times 後（無）
-        "out_prefix_e": "se_euroc",
-        "out_prefix_t": "se_tum",
+        "out_prefix_e": "stereo_euroc",
+        "out_prefix_t": "stereo_tum",
         "evo_align":    "-a",                      # stereo: align only
     },
     "stereo_inertial": {
@@ -149,8 +150,8 @@ ALGO_CONFIGS: dict = {
         "tum_ts_dir":   EXAMPLES / "Stereo-Inertial/TUM_TimeStamps",
         "tum_pre":      _tum_pre_stereo_inertial,  # 插在 times 前（cam1）
         "tum_post":     _tum_post_stereo_inertial, # 插在 times 後（imu）
-        "out_prefix_e": "stereo_euroc",
-        "out_prefix_t": "stereo_tum",
+        "out_prefix_e": "stereo_imu_euroc",
+        "out_prefix_t": "stereo_imu_tum",
         "evo_align":    "-a",                      # stereo: align only
     },
 }
@@ -161,35 +162,45 @@ ALGO_CONFIGS: dict = {
 #  TUM-VI: (category,   seq_name, output_suffix)
 # ─────────────────────────────────────────────
 EUROC_DATASETS = [
-    ("V1_01_easy",      "V101", "v101"),
+    # ("V1_01_easy",      "V101", "v101"),
     ("V1_02_medium",    "V102", "v102"),
-    ("V1_03_difficult", "V103", "v103"),
+    # ("V1_03_difficult", "V103", "v103"),
+    # ("V2_01_easy", "V201", "v201"),
+    # ("V2_02_medium", "V202", "v202"),
+    # ("V2_03_difficult", "V203", "v203"),
+    # ("MH_01_easy", "MH01", "m01"),
+    # ("MH_02_easy", "MH02", "m02"),
+    # ("MH_03_medium", "MH03", "m03"),
+    # ("MH_04_difficult", "MH04", "m04"),
+    # ("MH_05_difficult", "MH05", "m05"),
 ]
 
 TUM_DATASETS = [
     # room
-    ("room",     "room1",     "room1"),
-    ("room",     "room2",     "room2"),
-    ("room",     "room3",     "room3"),
-    ("room",     "room4",     "room4"),
-    ("room",     "room5",     "room5"),
-    ("room",     "room6",     "room6"),
-    # corridor
-    ("corridor", "corridor1", "corr1"),
-    ("corridor", "corridor2", "corr2"),
-    ("corridor", "corridor3", "corr3"),
-    ("corridor", "corridor4", "corr4"),
-    ("corridor", "corridor5", "corr5"),
-    # slides
-    ("slides",   "slides1",   "slides1"),
-    ("slides",   "slides2",   "slides2"),
-    ("slides",   "slides3",   "slides3"),
-    # magistrale
-    ("magistrale", "magistrale1", "mag1"),
-    ("magistrale", "magistrale2", "mag2"),
-    ("magistrale", "magistrale3", "mag3"),
-    ("magistrale", "magistrale4", "mag4"),
-    ("magistrale", "magistrale5", "mag5"),
+    # ("room",     "room1",     "room1"),
+    # ("room",     "room2",     "room2"),
+    # ("room",     "room3",     "room3"),
+    # ("room",     "room4",     "room4"),
+    # ("room",     "room5",     "room5"),
+    # ("room",     "room6",     "room6"),
+    # # corridor
+    # ("corridor", "corridor1", "corr1"),
+    # ("corridor", "corridor2", "corr2"),
+    # ("corridor", "corridor3", "corr3"),
+    # ("corridor", "corridor4", "corr4"),
+    # ("corridor", "corridor5", "corr5"),
+    # # slides
+    # ("slides",   "slides1",   "slides1"),
+    # ("slides",   "slides2",   "slides2"),
+    # ("slides",   "slides3",   "slides3"),
+    # # magistrale
+    # ("magistrale", "magistrale1", "mag1"),
+    # ("magistrale", "magistrale2", "mag2"),
+    # ("magistrale", "magistrale3", "mag3"),
+    # ("magistrale", "magistrale4", "mag4"),
+    # ("magistrale", "magistrale5", "mag5"),
+    #outdoors
+    ("outdoors", "outdoors6", "out6"),
 ]
 
 # ─────────────────────────────────────────────
@@ -263,9 +274,58 @@ def eval_with_evo(gt_csv: str, fixed_traj: Path, align_flag: str = "-a") -> floa
     return rmse
 
 
+def convert_gt_to_tum(gt_csv: str, out_path: Path) -> bool:
+    """將 EuRoC/TUM-VI GT CSV (timestamp_ns, px, py, pz, qw, qx, qy, qz, ...)
+    轉換為 evaluate_ate_scale.py 所需的 TUM 格式 (timestamp_s tx ty tz qx qy qz qw)。"""
+    try:
+        with open(gt_csv, "r") as fin, open(out_path, "w") as fout:
+            for line in fin:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                parts = line.split(',')
+                if len(parts) < 8:
+                    continue
+                ts_s = float(parts[0]) / 1e9
+                px, py, pz = parts[1].strip(), parts[2].strip(), parts[3].strip()
+                # EuRoC/TUM-VI GT 四元數順序為 qw, qx, qy, qz；TUM 格式需要 qx, qy, qz, qw
+                qw, qx, qy, qz = parts[4].strip(), parts[5].strip(), parts[6].strip(), parts[7].strip()
+                fout.write(f"{ts_s:.9f} {px} {py} {pz} {qx} {qy} {qz} {qw}\n")
+        return True
+    except Exception as e:
+        log(f"  [WARN] GT 格式轉換失敗: {e}")
+        return False
+
+
+def plot_trajectory(gt_csv: str, fixed_traj: Path, output_name: str) -> None:
+    """呼叫 evaluate_ate_scale.py --plot 產生軌跡比對圖（PDF）。"""
+    if not EVALUATE_ATE_PY.exists():
+        log(f"  [WARN] 找不到 {EVALUATE_ATE_PY}，跳過繪圖")
+        return
+
+    gt_tum   = SCRIPT_DIR / f"gt_tum_{output_name}.txt"
+    plot_out = SCRIPT_DIR / f"trajectory_{output_name}.pdf"
+
+    if not convert_gt_to_tum(gt_csv, gt_tum):
+        return
+
+    stdout, stderr, rc = run_cmd(
+        [sys.executable, str(EVALUATE_ATE_PY),
+         str(gt_tum), str(fixed_traj),
+         "--max_difference", "0.02",
+         "--plot", str(plot_out)],
+        cwd=SCRIPT_DIR,
+    )
+    gt_tum.unlink(missing_ok=True)   # 刪除臨時 GT 轉換檔
+    if rc != 0:
+        log(f"  [WARN] 軌跡繪圖失敗:\n{stderr[:300]}")
+    else:
+        log(f"  [PLOT] 軌跡圖已儲存至: {plot_out.name}")
+
+
 def _postprocess(raw_traj: Path, output_name: str, gt_csv: str,
                  align_flag: str = "-a") -> tuple:
-    """fix_time + evo_ape，回傳 (rmse_or_'FAILED', note)"""
+    """fix_time + evo_ape + 軌跡圖，回傳 (rmse_or_'FAILED', note)"""
     if not raw_traj.exists():
         log(f"  [ERROR] {raw_traj} 不存在")
         return "FAILED", f"找不到輸出軌跡: {raw_traj}"
@@ -274,6 +334,9 @@ def _postprocess(raw_traj: Path, output_name: str, gt_csv: str,
 
     if not fix_time(raw_traj, fixed_traj):
         return "FAILED", "fix_time.py 失敗"
+
+    # 繪製軌跡比對圖
+    plot_trajectory(gt_csv, fixed_traj, output_name)
 
     rmse = eval_with_evo(gt_csv, fixed_traj, align_flag)
     if rmse is not None:
@@ -318,6 +381,15 @@ def run_euroc(cfg: dict, seq_folder: str, ts_stem: str, seq_suffix: str) -> dict
 
     cmd = [binary, VOCAB, cfg["yaml_euroc"], seq_path, times_file, output_name]
     stdout, stderr, rc = run_cmd(cmd, cwd=ROOT_DIR)
+
+    # 自動移動並重新命名 log 檔案到 evaluation/ 避免被後續序列覆蓋
+    for log_type in ["tracking_log.csv", "localmapping_log.csv", "loop_closing_log.csv"]:
+        old_log = ROOT_DIR / log_type
+        if old_log.exists():
+            new_log = SCRIPT_DIR / f"{output_name}_{log_type}"
+            old_log.rename(new_log)
+            log(f"  [LOG] Moved {log_type} to {new_log.name}")
+
     if rc != 0:
         entry["note"] = f"{cfg['bin_euroc']} 回傳 {rc}"
         log(f"  [ERROR] 執行失敗:\n{stderr[-800:]}")
@@ -378,6 +450,15 @@ def run_tum(cfg: dict, category: str, seq_name: str, seq_suffix: str) -> dict:
     # 正確順序：cam0  [cam1]  times_file  [imu]  output_name
     cmd = [binary, VOCAB, cfg["yaml_tum"], cam0] + pre_args + [times_file] + post_args + [output_name]
     stdout, stderr, rc = run_cmd(cmd, cwd=ROOT_DIR)
+
+    # 自動移動並重新命名 log 檔案到 evaluation/ 避免被後續序列覆蓋
+    for log_type in ["tracking_log.csv", "localmapping_log.csv", "loop_closing_log.csv"]:
+        old_log = ROOT_DIR / log_type
+        if old_log.exists():
+            new_log = SCRIPT_DIR / f"{output_name}_{log_type}"
+            old_log.rename(new_log)
+            log(f"  [LOG] Moved {log_type} to {new_log.name}")
+
     if rc != 0:
         entry["note"] = f"{cfg['bin_tum']} 回傳 {rc}"
         log(f"  [ERROR] 執行失敗:\n{stderr[-800:]}")
