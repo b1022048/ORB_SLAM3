@@ -57,12 +57,15 @@ LocalMapping::LocalMapping(System* pSys, Atlas *pAtlas, const float bMonocular, 
     mCsvMeanReprojErr = 0.0;
     mCsvMaxReprojErr  = 0.0;
     mCsvOptimMs       = 0.0;
+    mCsvBADone        = 0;
+    mCsvBAAborted     = 0;
+    mCsvBAIters       = 0;
     f_lm_csv.open("localmapping_log.csv");
     f_lm_csv << "localmappingnumber,kf_id,track_frame_id,timestamp_ms,"
                 "kf_insertion_ms,"
                 "map_points_total,new_map_points,queue_length,kf_culled,"
                 "mean_reprojection_error,max_reprojection_error,"
-                "optimization_time_ms,tracking_lost\n";
+                "optimization_time_ms,ba_executed,ba_aborted,ba_iters,tracking_lost\n";
 }
 
 void LocalMapping::SetLoopCloser(LoopClosing* pLoopCloser)
@@ -140,6 +143,9 @@ void LocalMapping::Run()
             mCsvOptimMs       = 0.0;
             mCsvMeanReprojErr = 0.0;
             mCsvMaxReprojErr  = 0.0;
+            mCsvBADone        = 0;
+            mCsvBAAborted     = 0;
+            mCsvBAIters       = 0;
 
             if(!CheckNewKeyFrames() && !stopRequested())
             {
@@ -167,17 +173,19 @@ void LocalMapping::Run()
                         }
 
                         bool bLarge = ((mpTracker->GetMatchesInliers()>75)&&mbMonocular)||((mpTracker->GetMatchesInliers()>100)&&!mbMonocular);
-                        Optimizer::LocalInertialBA(mpCurrentKeyFrame, &mbAbortBA, mpCurrentKeyFrame->GetMap(),num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA, bLarge, !mpCurrentKeyFrame->GetMap()->GetIniertialBA2());
+                        Optimizer::LocalInertialBA(mpCurrentKeyFrame, &mbAbortBA, mpCurrentKeyFrame->GetMap(),num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA, mCsvBAIters, bLarge, !mpCurrentKeyFrame->GetMap()->GetIniertialBA2());
                         b_doneLBA = true;
                     }
                     else
                     {
-                        Optimizer::LocalBundleAdjustment(mpCurrentKeyFrame,&mbAbortBA, mpCurrentKeyFrame->GetMap(),num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA);
+                        Optimizer::LocalBundleAdjustment(mpCurrentKeyFrame,&mbAbortBA, mpCurrentKeyFrame->GetMap(),num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA, mCsvBAIters);
                         b_doneLBA = true;
                     }
 
                     mCsvOptimMs = std::chrono::duration_cast<std::chrono::duration<double,std::milli>>(
                         std::chrono::steady_clock::now() - csv_ba_t0).count();
+                    mCsvBADone    = b_doneLBA ? 1 : 0;
+                    mCsvBAAborted = (b_doneLBA && mbAbortBA) ? 1 : 0;
 
                     if(b_doneLBA && !mbAbortBA)
                         ComputeLocalWindowReprojErrors(mCsvMeanReprojErr, mCsvMaxReprojErr);
@@ -316,6 +324,9 @@ void LocalMapping::Run()
                     << mCsvMaxReprojErr                            << ","
                     << std::setprecision(3)
                     << mCsvOptimMs                                 << ","
+                    << mCsvBADone                                  << ","
+                    << mCsvBAAborted                               << ","
+                    << mCsvBAIters                                 << ","
                     << csvTrackingLost                             << "\n";
                 if(mLMIteration % 30 == 0)  // flush every 30 iterations
                     f_lm_csv.flush();

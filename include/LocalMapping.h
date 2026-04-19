@@ -204,6 +204,9 @@ protected:
     double   mCsvMeanReprojErr;
     double   mCsvMaxReprojErr;
     double   mCsvOptimMs;
+    int      mCsvBADone;      // 1 if Local BA was executed this iteration
+    int      mCsvBAAborted;   // 1 if Local BA was aborted mid-iteration
+    int      mCsvBAIters;     // actual g2o iterations performed
 
     };
 
