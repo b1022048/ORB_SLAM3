@@ -1113,7 +1113,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
     return nInitialCorrespondences-nBad;
 }
 
-void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap, int& num_fixedKF, int& num_OptKF, int& num_MPs, int& num_edges)
+void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap, int& num_fixedKF, int& num_OptKF, int& num_MPs, int& num_edges, int& num_iters)
 {
     // Local KeyFrames: First Breath Search from Current Keyframe
     list<KeyFrame*> lLocalKeyFrames;
@@ -1408,7 +1408,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
             return;
 
     optimizer.initializeOptimization();
-    optimizer.optimize(10);
+    num_iters = optimizer.optimize(10);
 
     vector<pair<KeyFrame*,MapPoint*> > vToErase;
     vToErase.reserve(vpEdgesMono.size()+vpEdgesBody.size()+vpEdgesStereo.size());
@@ -2380,7 +2380,7 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
     return nIn;
 }
 
-void Optimizer::LocalInertialBA(KeyFrame *pKF, bool *pbStopFlag, Map *pMap, int& num_fixedKF, int& num_OptKF, int& num_MPs, int& num_edges, bool bLarge, bool bRecInit)
+void Optimizer::LocalInertialBA(KeyFrame *pKF, bool *pbStopFlag, Map *pMap, int& num_fixedKF, int& num_OptKF, int& num_MPs, int& num_edges, int& num_iters, bool bLarge, bool bRecInit)
 {
     Map* pCurrentMap = pKF->GetMap();
 
@@ -2840,7 +2840,7 @@ void Optimizer::LocalInertialBA(KeyFrame *pKF, bool *pbStopFlag, Map *pMap, int&
     optimizer.initializeOptimization();
     optimizer.computeActiveErrors();
     float err = optimizer.activeRobustChi2();
-    optimizer.optimize(opt_it); // Originally to 2
+    num_iters = optimizer.optimize(opt_it); // Originally to 2
     float err_end = optimizer.activeRobustChi2();
     if(pbStopFlag)
         optimizer.setForceStopFlag(pbStopFlag);
