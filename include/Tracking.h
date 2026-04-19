@@ -368,6 +368,9 @@ protected:
         int  tracking_method    = -1;
         bool wider_window_used  = false;
 
+        // matches during initialization (SearchForInitialization, monocular only)
+        int init_matches    = 0;
+
         // matches (filled inside TrackReferenceKeyFrame / TrackWithMotionModel)
         int initial_matches = 0;
 

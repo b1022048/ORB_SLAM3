@@ -157,6 +157,8 @@ void Tracking::InitFrameLog(const std::string &path)
         "上一幀狀態,"
         "tracking_method,"
         // "wider_window_used,"
+    //初始化匹配點數量
+        "init_matches,"
     //匹配點數量
         "initial_matches,"
         "matches_before_tlm_opt,"
@@ -166,7 +168,7 @@ void Tracking::InitFrameLog(const std::string &path)
         "final_inliers,"
     //優化與品質評估
         // "outlier_ratio,"
-        // "opt_type,"
+         "opt_type,"
     //關鍵幀決策
         "need_new_kf,"
         "new_kf_created,"
@@ -258,6 +260,7 @@ void Tracking::WriteFrameLog()
         << stateStr(L.last_state)        << ","
         << methodStr(L.tracking_method)  << ","
         //<< yn(L.wider_window_used)       << ","
+        << L.init_matches                << ","   // [Monitor] init search matches
         << L.initial_matches             << ","
         << L.matches_before_tlm_opt      << ","
         // << L.outliers_before_tlm_opt     << ","
@@ -266,7 +269,7 @@ void Tracking::WriteFrameLog()
         << L.final_inliers               << ","
         << std::setprecision(4)
         // << L.outlier_ratio               << ","
-        // << optStr(L.opt_type)            << ","
+        << optStr(L.opt_type)            << ","
         << yn(L.need_new_kf)             << ","
         << yn(L.new_kf_created)          << ","
         << L.total_kf_in_map             << ","
@@ -2736,6 +2739,7 @@ void Tracking::MonocularInitialization()
         // Find correspondences
         ORBmatcher matcher(0.9,true);
         int nmatches = matcher.SearchForInitialization(mInitialFrame,mCurrentFrame,mvbPrevMatched,mvIniMatches,100);
+        mCurLog.init_matches = nmatches;   // [Monitor] init search matches
 
         // Check if there are enough correspondences
         if(nmatches<100)
@@ -2835,7 +2839,7 @@ void Tracking::CreateInitialMapMonocular()
     else
         invMedianDepth = 1.0f/medianDepth;
 
-    if(medianDepth<0 || pKFcur->TrackedMapPoints(1)<50) // TODO Check, originally 100 tracks
+    if(medianDepth<0 || pKFcur->TrackedMapPoints(1)<100) // TODO Check, originally 100 tracks
     {
         Verbose::PrintMess("Wrong initialization, reseting...", Verbose::VERBOSITY_QUIET);
         mpSystem->ResetActiveMap();
