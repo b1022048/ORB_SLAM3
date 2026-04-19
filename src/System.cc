@@ -212,14 +212,14 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     //Initialize the Loop Closing thread and launch
     // mSensor!=MONOCULAR && mSensor!=IMU_MONOCULAR
     mpLoopCloser = new LoopClosing(mpAtlas, mpKeyFrameDatabase, mpVocabulary, mSensor!=MONOCULAR, activeLC); // mSensor!=MONOCULAR);
-    mptLoopClosing = new thread(&ORB_SLAM3::LoopClosing::Run, mpLoopCloser);
+    //mptLoopClosing = new thread(&ORB_SLAM3::LoopClosing::Run, mpLoopCloser);
 
 
     // 切換到單線程模式，關閉回環檢測215行
-    // if(activeLC)
-    //     mptLoopClosing = new thread(&ORB_SLAM3::LoopClosing::Run, mpLoopCloser);
-    // else
-    //     mptLoopClosing = nullptr;
+    if(activeLC)
+        mptLoopClosing = new thread(&ORB_SLAM3::LoopClosing::Run, mpLoopCloser);
+    else
+        mptLoopClosing = nullptr;
 
 
 
