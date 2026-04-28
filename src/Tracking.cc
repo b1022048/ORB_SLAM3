@@ -1981,15 +1981,16 @@ void Tracking::Track()
         return;
     }
 
+    //假設正常情況一定有 active map，這裡只是做 sanity check
     Map* pCurrentMap = mpAtlas->GetCurrentMap();
     if(!pCurrentMap)
     {
         cout << "ERROR: There is not an active map in the atlas" << endl;
     }
 
-    if(mState!=NO_IMAGES_YET)
+    if(mState!=NO_IMAGES_YET)//如果當前狀態不是 NO_IMAGES_YET，說明之前已經處理過幾幀了，這裡需要檢查時間戳是否有問題
     {
-        if(mLastFrame.mTimeStamp>mCurrentFrame.mTimeStamp)
+        if(mLastFrame.mTimeStamp>mCurrentFrame.mTimeStamp)//如果當前幀的時間戳比上一幀的還小，說明時間戳出現了問題，這種情況下直接清空 IMU 數據隊列，重置地圖，並返回
         {
             cerr << "ERROR: Frame with a timestamp older than previous frame detected!" << endl;
             unique_lock<mutex> lock(mMutexImuQueue);
@@ -1997,11 +1998,11 @@ void Tracking::Track()
             CreateMapInAtlas();
             return;
         }
-        else if(mCurrentFrame.mTimeStamp>mLastFrame.mTimeStamp+1.0)
+        else if(mCurrentFrame.mTimeStamp>mLastFrame.mTimeStamp+1.0)//如果當前幀的時間戳比上一幀的還大超過1秒，說明時間戳出現了跳變，這種情況下需要重置 IMU 整合
         {
             // cout << mCurrentFrame.mTimeStamp << ", " << mLastFrame.mTimeStamp << endl;
             // cout << "id last: " << mLastFrame.mnId << "    id curr: " << mCurrentFrame.mnId << endl;
-            if(mpAtlas->isInertial())
+            if(mpAtlas->isInertial())//IMU對時間敏感
             {
 
                 if(mpAtlas->isImuInitialized())
@@ -2065,9 +2066,9 @@ void Tracking::Track()
 
     // Get Map Mutex -> Map cannot be changed
     unique_lock<mutex> lock(pCurrentMap->mMutexMapUpdate);
-
+    //偵測地圖是否更新
     mbMapUpdated = false;
-
+    //偵測地圖是否更新
     int nCurMapChangeIndex = pCurrentMap->GetMapChangeIndex();
     int nMapChangeIndex = pCurrentMap->GetLastMapChange();
     if(nCurMapChangeIndex>nMapChangeIndex)
@@ -3214,8 +3215,8 @@ bool Tracking::TrackLocalMap()
     // We retrieve the local map and try to find matches to points in the local map.
     mTrackedFr++;
 
-    UpdateLocalMap();
-    SearchLocalPoints();
+    UpdateLocalMap();// 更新 mvpLocalKeyFrames 和 mvpLocalMapPoints
+    SearchLocalPoints();// 把 local map 中可見的點投影到當前幀，補充匹配
 
     mCurLog.local_map_mp_count = (int)mvpLocalMapPoints.size();   // [Monitor]
     mCurLog.local_kf_count     = (int)mvpLocalKeyFrames.size();   // [Monitor]
@@ -3234,7 +3235,7 @@ bool Tracking::TrackLocalMap()
     int inliers;
     if (!mpAtlas->isImuInitialized())
     {
-        Optimizer::PoseOptimization(&mCurrentFrame);
+        Optimizer::PoseOptimization(&mCurrentFrame);//純視覺優化
         mCurLog.opt_type = 0;   // [Monitor]
     }
     else
@@ -3242,7 +3243,7 @@ bool Tracking::TrackLocalMap()
         if(mCurrentFrame.mnId<=mnLastRelocFrameId+mnFramesToResetIMU)
         {
             Verbose::PrintMess("TLM: PoseOptimization ", Verbose::VERBOSITY_DEBUG);
-            Optimizer::PoseOptimization(&mCurrentFrame);
+            Optimizer::PoseOptimization(&mCurrentFrame);//純視覺優化(不考慮IMU)，因為剛重定位完，IMU狀態不可靠)
             mCurLog.opt_type = 0;   // [Monitor]
         }
         else

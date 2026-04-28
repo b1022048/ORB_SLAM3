@@ -4569,12 +4569,12 @@ int Optimizer::PoseInertialOptimizationLastKeyFrame(Frame *pFrame, bool bRecInit
                     e->setVertex(0,VP);
                     e->setMeasurement(obs);
 
-                    // Add here uncerteinty
-                    const float unc2 = pFrame->mpCamera->uncertainty2(obs);
+                    // Add here uncerteinty 視覺觀測的不確定性（如圖像邊緣的特徵點不穩定）。
+                    const float unc2 = pFrame->mpCamera->uncertainty2(obs);//相機模型本身的不確定性（如魚眼鏡頭邊緣畸變更大）。
 
                     const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave]/unc2;
                     e->setInformation(Eigen::Matrix2d::Identity()*invSigma2);
-
+                    
                     g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
                     e->setRobustKernel(rk);
                     rk->setDelta(thHuberMono);
@@ -4682,14 +4682,14 @@ int Optimizer::PoseInertialOptimizationLastKeyFrame(Frame *pFrame, bool bRecInit
     EdgeGyroRW* egr = new EdgeGyroRW();
     egr->setVertex(0,VGk);
     egr->setVertex(1,VG);
-    Eigen::Matrix3d InfoG = pFrame->mpImuPreintegrated->C.block<3,3>(9,9).cast<double>().inverse();
+    Eigen::Matrix3d InfoG = pFrame->mpImuPreintegrated->C.block<3,3>(9,9).cast<double>().inverse();//陀螺儀隨機游走的資訊矩陣（反映了陀螺儀偏置隨時間變化的不確定性）。
     egr->setInformation(InfoG);
     optimizer.addEdge(egr);
 
     EdgeAccRW* ear = new EdgeAccRW();
     ear->setVertex(0,VAk);
     ear->setVertex(1,VA);
-    Eigen::Matrix3d InfoA = pFrame->mpImuPreintegrated->C.block<3,3>(12,12).cast<double>().inverse();
+    Eigen::Matrix3d InfoA = pFrame->mpImuPreintegrated->C.block<3,3>(12,12).cast<double>().inverse();//加速度計隨機游走的資訊矩陣（反映了加速度計偏置隨時間變化的不確定性）。
     ear->setInformation(InfoA);
     optimizer.addEdge(ear);
 
