@@ -180,19 +180,59 @@ $$C = \mathbf{r}_{\mathcal{I}}^T \mathbf{\Omega}_I \mathbf{r}_{\mathcal{I}} + \m
 
 ## Step 4：linearizeOplus()
 
-**對應程式：** `G2oTypes.cc:642-738`（EdgeInertialGS）、`G2oTypes.cc:762-775`（Prior）
+**對應程式：** `G2oTypes.cc:642-738`（EdgeInertialGS）、`G2oTypes.cc:762-775`（EdgePriorGyro / EdgePriorAcc）
 
-優化變數順序：$\mathbf{x} = [\mathbf{v}_0, \mathbf{v}_1, \mathbf{b}^g, \mathbf{b}^a, \mathbf{R}_{wg}, s]$，共 15 維（mono）。
+優化變數順序：$\mathbf{x} = [\mathbf{v}_0, \mathbf{v}_1, \mathbf{b}^g, \mathbf{b}^a, \mathbf{R}_{wg}, s]$，共 15 維（mono；stereo 時 $s$ fixed，少 1 維變 14 維）。
 
-### 4.1 EdgeInertialGS Jacobian（9×15）
+每條邊各自負責計算自己對所連接頂點的 Jacobian，存進 `_jacobianOplus[i]`。g2o 在組裝 H 時自動跳過 fixed 頂點對應的 block。
+
+### 4.1 EdgeInertialGS Jacobian（9×15，連接 8 頂點）
 
 中間量：
 - $\mathbf{R}_{bw_0} = \mathbf{R}_{wb_0}^T$
-- $\mathbf{e}_R = \Delta\mathbf{R}(\mathbf{b})^T \mathbf{R}_{bw_0} \mathbf{R}_{wb_1}$
+- $\mathbf{e}_R = \Delta\mathbf{R}(\mathbf{b})^T \mathbf{R}_{bw_0} \mathbf{R}_{wb_1}$（這是 $\mathbf{r}_{\Delta R}$ 取 Log 之前的旋轉矩陣）
 - $\mathbf{J}_r^{-1} = \text{InverseRightJacobianSO3}(\text{Log}(\mathbf{e}_R))$
 - $\mathbf{G}_m = \begin{bmatrix} 0 & -9.81 \\ 9.81 & 0 \\ 0 & 0 \end{bmatrix}$
 - $\frac{\partial\mathbf{g}}{\partial\theta} = \mathbf{R}_{wg} \cdot \mathbf{G}_m$
 - $\delta\mathbf{b}^g$ 的當前值（從 GetDeltaBias 拿）
+
+**InverseRightJacobianSO3 是什麼？**
+
+SO(3) 的右 Jacobian $\mathbf{J}_r(\boldsymbol{\phi})$ 連接「旋轉向量空間」和「旋轉矩陣流形」之間的微分關係：
+
+$$\text{Exp}(\boldsymbol{\phi} + \delta\boldsymbol{\phi}) \approx \text{Exp}(\boldsymbol{\phi}) \cdot \text{Exp}(\mathbf{J}_r(\boldsymbol{\phi}) \cdot \delta\boldsymbol{\phi})$$
+
+逆右 Jacobian $\mathbf{J}_r^{-1}(\boldsymbol{\phi})$ 是反方向：
+
+$$\text{Log}(\text{Exp}(\boldsymbol{\phi}) \cdot \text{Exp}(\delta\boldsymbol{\phi})) \approx \boldsymbol{\phi} + \mathbf{J}_r^{-1}(\boldsymbol{\phi}) \cdot \delta\boldsymbol{\phi}$$
+
+**為什麼這裡需要 $\mathbf{J}_r^{-1}$？**
+
+旋轉殘差 $\mathbf{r}_{\Delta R} = \text{Log}(\mathbf{e}_R)$ 經過 Log 映射，要對 $\mathbf{R}_{wb_1}$、$\mathbf{R}_{wb_0}$、$\mathbf{b}^g$ 等變數做偏微分時，需要 $\mathbf{J}_r^{-1}$ 把流形上的變化「拉回」到向量空間：
+
+$$\frac{\partial \text{Log}(\mathbf{e}_R)}{\partial \mathbf{R}_{wb_1}} \propto \mathbf{J}_r^{-1}(\text{Log}(\mathbf{e}_R))$$
+
+所以你會在 $\partial \mathbf{r}_{\Delta R} / \partial \cdot$ 的所有公式裡看到 $\mathbf{J}_r^{-1}$ 出現。
+
+**閉式公式**（G2oTypes.cc:821-832）：
+
+設 $\boldsymbol{\phi} = (x, y, z)$，$d = \|\boldsymbol{\phi}\|$，$\mathbf{W} = [\boldsymbol{\phi}]_\times$（hat operator）：
+
+$$\mathbf{J}_r^{-1}(\boldsymbol{\phi}) = \mathbf{I}_3 + \frac{1}{2}\mathbf{W} + \left(\frac{1}{d^2} - \frac{1+\cos d}{2d \sin d}\right)\mathbf{W}^2$$
+
+當 $d < 10^{-5}$（小角度）退化為 $\mathbf{I}_3$，避免數值問題。
+
+對應的 `RightJacobianSO3`：
+
+$$\mathbf{J}_r(\boldsymbol{\phi}) = \mathbf{I}_3 - \frac{1-\cos d}{d^2}\mathbf{W} + \frac{d - \sin d}{d^3}\mathbf{W}^2$$
+
+**為什麼 $\partial \mathbf{r}_{\Delta R} / \partial \mathbf{b}^g$ 裡同時出現 $\mathbf{J}_r^{-1}$ 和 $\mathbf{J}_r$？**
+
+$$\frac{\partial \mathbf{r}_{\Delta R}}{\partial \mathbf{b}^g} = -\mathbf{J}_r^{-1}(\mathbf{r}_{\Delta R}) \cdot \mathbf{e}_R^T \cdot \mathbf{J}_r(\mathbf{J}^R_g \delta\mathbf{b}^g) \cdot \mathbf{J}^R_g$$
+
+- $\mathbf{J}_r^{-1}(\mathbf{r}_{\Delta R})$：把 Log 後的向量微分**拉回**到流形
+- $\mathbf{J}_r(\mathbf{J}^R_g \delta\mathbf{b}^g)$：bias 變化引起 $\Delta\mathbf{R}(\mathbf{b}) = \bar{\Delta\mathbf{R}} \cdot \text{Exp}(\mathbf{J}^R_g \delta\mathbf{b}^g)$，這個 Exp 的右 Jacobian 把 bias 空間的小變化**推到**流形上的旋轉變化
+- 兩個方向的「轉換」串接，加上鏈式法則的中間項 $\mathbf{e}_R^T$ 和 $\mathbf{J}^R_g$，得到完整的偏微分
 
 **對 $\mathbf{v}_0$（3 欄，line 690-693）**：
 
@@ -242,7 +282,35 @@ $$\frac{\partial \mathbf{r}_{\Delta v}}{\partial s} = \mathbf{R}_{bw_0} (\mathbf
 
 $$\frac{\partial \mathbf{r}_{\Delta p}}{\partial s} = \mathbf{R}_{bw_0} (\mathbf{t}_{wb_1} - \mathbf{t}_{wb_0} - \mathbf{v}_0 \Delta t)$$
 
-### 4.2 完整 J 矩陣（15×15，block 形式）
+**對 $\mathbf{T}_0, \mathbf{T}_1$（pose 頂點，line 670-687、712-715）**：
+
+程式碼**有計算** Pose Jacobian，但這兩個頂點 `setFixed(true)`，g2o 在組裝 H 時自動忽略對應 block，所以這些 Jacobian 算了不會影響 δx：
+
+```cpp
+// _jacobianOplus[0] (對 T0)：rotation 和 translation 都有非零 block
+_jacobianOplus[0].block<3,3>(0,0) = -invJr*Rwb2.transpose()*Rwb1;  // 用不到
+_jacobianOplus[0].block<3,3>(6,3) = DiagonalMatrix(-s,-s,-s);       // 用不到
+// _jacobianOplus[4] (對 T1)：同樣計算了但用不到
+```
+
+可以視為「程式碼為了通用性實作完整版，InertialOptimization 只用其中部分」。
+
+### 4.2 EdgePriorGyro / EdgePriorAcc Jacobian（3×3 each，line 762-775）
+
+兩條 unary edge，殘差 $\mathbf{r} = \mathbf{0} - \mathbf{b}$：
+
+$$\frac{\partial \mathbf{r}_{pg}}{\partial \mathbf{b}^g} = +\mathbf{I}_3, \quad \frac{\partial \mathbf{r}_{pa}}{\partial \mathbf{b}^a} = +\mathbf{I}_3$$
+
+```cpp
+void EdgePriorGyro::linearizeOplus()
+{
+    _jacobianOplusXi.block<3,3>(0,0) = Eigen::Matrix3d::Identity();
+}
+```
+
+理論上應為 $-\mathbf{I}_3$（因為 $\mathbf{r} = -\mathbf{b}$），程式碼寫 $+\mathbf{I}_3$ 是符號錯誤，但因 $J^T \Omega J = \Omega$ 與正負無關，Hessian 不受影響，gradient 方向會反但 prior 是弱約束所以不影響收斂。
+
+### 4.3 完整 J 矩陣（15×15，block 形式）
 
 $$\mathbf{J} = \begin{bmatrix}
 \mathbf{0}_{3\times3} & \mathbf{0}_{3\times3} & -\mathbf{J}_r^{-1}\mathbf{e}_R^T\mathbf{J}_r(\mathbf{J}^R_g\delta\mathbf{b}^g)\mathbf{J}^R_g & \mathbf{0}_{3\times3} & \mathbf{0}_{3\times2} & \mathbf{0}_{3\times1} \\
@@ -256,7 +324,7 @@ $$\mathbf{J} = \begin{bmatrix}
 
 注意：prior 的 Jacobian 程式碼寫 `+I₃`（G2oTypes.cc:762-775），但 residual 是 `0 - b`，理論應為 `-I₃`（這裡按理論值寫）。這個符號不影響 Hessian（$J^T \Omega J = \Omega$ 無論正負），實務上不影響收斂。
 
-### 4.3 J 拆成各邊獨立的 Jacobian
+### 4.4 J 拆成各邊獨立的 Jacobian
 
 g2o 內部不組成完整 J，而是每條邊各自存 Jacobian：
 
@@ -315,9 +383,11 @@ $$(\mathbf{H} + \lambda \mathbf{I})\, \delta\mathbf{x} = -\mathbf{b}$$
 
 g2o 用 `LinearSolverEigen<BlockSolverX::PoseMatrixType>`，對稀疏對稱矩陣做 Cholesky 分解求解。
 
-得到：
+得到（與 Step 4 變數順序對應，共 15 維）：
 
-$$\delta\mathbf{x} = [\delta\mathbf{v}_0, \delta\mathbf{v}_1, \delta\mathbf{b}^g, \delta\mathbf{b}^a, \delta\alpha, \delta\beta, \delta s] \in \mathbb{R}^{15}$$
+$$\delta\mathbf{x} = [\underbrace{\delta\mathbf{v}_0}_{3},\ \underbrace{\delta\mathbf{v}_1}_{3},\ \underbrace{\delta\mathbf{b}^g}_{3},\ \underbrace{\delta\mathbf{b}^a}_{3},\ \underbrace{\delta\mathbf{R}_{wg}}_{2},\ \underbrace{\delta s}_{1}] \in \mathbb{R}^{15}$$
+
+其中 $\delta\mathbf{R}_{wg} = (\delta\alpha, \delta\beta)$ 是 2-DOF 流形更新（z 軸鎖死），$\delta s$ 是純量（stereo 時 fixed，δx 變 14 維）。
 
 ---
 
@@ -739,9 +809,50 @@ $$\mathbf{J}_{\text{proj}}^{stereo} = \begin{bmatrix} f_x/Z & 0 & -f_x X/Z^2 \\ 
 
 其餘結構同 EdgeMono。
 
-### 4.5 Prior Jacobian（同前，G2oTypes.cc:762-775）
+### 4.5 Prior Jacobian（bInit=true 才有，G2oTypes.cc:762-775）
 
-$$\frac{\partial \mathbf{r}_{pg}}{\partial \mathbf{b}^g} = +I_3 \quad \text{（程式實作，理論應為 -I_3）}$$
+EdgePriorGyro / EdgePriorAcc 是 unary edge：
+
+$$\frac{\partial \mathbf{r}_{pg}}{\partial \mathbf{b}^g} = +I_3, \quad \frac{\partial \mathbf{r}_{pa}}{\partial \mathbf{b}^a} = +I_3 \quad \text{（程式實作，理論應為 } -I_3\text{）}$$
+
+VIBA 2（bInit=false）不加 Prior 邊，這個 Jacobian 不存在。
+
+### 4.6 Bias Random Walk Jacobian（bInit=false 才有，G2oTypes.h:645、681）
+
+當 bInit=false 時，每個 KF 各有 bias，多兩條 binary edge 約束相鄰 KF 的 bias 連續性。
+
+殘差：
+
+$$\mathbf{r}_{gRW} = \mathbf{b}^g_1 - \mathbf{b}^g_0, \quad \mathbf{r}_{aRW} = \mathbf{b}^a_1 - \mathbf{b}^a_0$$
+
+Jacobian：
+
+$$\frac{\partial \mathbf{r}_{gRW}}{\partial \mathbf{b}^g_0} = -I_3, \quad \frac{\partial \mathbf{r}_{gRW}}{\partial \mathbf{b}^g_1} = +I_3$$
+
+$$\frac{\partial \mathbf{r}_{aRW}}{\partial \mathbf{b}^a_0} = -I_3, \quad \frac{\partial \mathbf{r}_{aRW}}{\partial \mathbf{b}^a_1} = +I_3$$
+
+```cpp
+virtual void linearizeOplus(){
+    _jacobianOplusXi = -Eigen::Matrix3d::Identity();
+    _jacobianOplusXj.setIdentity();
+}
+```
+
+### 4.7 J 拆成各邊獨立的 Jacobian
+
+g2o 內部不組成完整 J，每條邊各自存 Jacobian：
+
+| Edge | 連接頂點 | Jacobian 維度 |
+|------|---------|--------------|
+| EdgeInertial | T0, V0, bg(0), ba(0), T1, V1 | 6 個 block，總 9×24 |
+| EdgePriorGyro | bg | 3×3（bInit=true）|
+| EdgePriorAcc | ba | 3×3（bInit=true）|
+| EdgeGyroRW | bg0, bg1 | 2 個 3×3（bInit=false）|
+| EdgeAccRW | ba0, ba1 | 2 個 3×3（bInit=false）|
+| EdgeMono | p_j, T_i | 2×3 + 2×6 |
+| EdgeStereo | p_j, T_i | 3×3 + 3×6 |
+
+組裝 H 時 g2o 把它們疊加進對應的 block，配合 Schur complement 消去 MapPoint 變數。
 
 ---
 
@@ -787,7 +898,21 @@ $\lambda_0 = 10^{-5}$，比 InertialOptimization 小很多，因為這時已有�
 
 $$(\mathbf{H}_{cc}^{Schur} + \lambda \mathbf{I}) \delta\mathbf{x}_c = -\mathbf{b}_c^{Schur}$$
 
-得到 $\delta\mathbf{x}_c = [\delta\mathbf{T}_0, \delta\mathbf{T}_1, \delta\mathbf{v}_0, \delta\mathbf{v}_1, \delta\mathbf{b}^g, \delta\mathbf{b}^a]$，再回代算 $\delta\mathbf{p}_j$。
+g2o 用 `LinearSolverEigen<BlockSolverX::PoseMatrixType>` 做稀疏 Cholesky 分解。
+
+得到 camera/IMU 變數的更新（k=2、bInit=true，共 24 維）：
+
+$$\delta\mathbf{x}_c = [\underbrace{\delta\mathbf{T}_0}_{6},\ \underbrace{\delta\mathbf{T}_1}_{6},\ \underbrace{\delta\mathbf{v}_0}_{3},\ \underbrace{\delta\mathbf{v}_1}_{3},\ \underbrace{\delta\mathbf{b}^g}_{3},\ \underbrace{\delta\mathbf{b}^a}_{3}] \in \mathbb{R}^{24}$$
+
+其中 $\delta\mathbf{T}_i = (\delta\boldsymbol{\phi}_i, \delta\boldsymbol{\rho}_i)$ 各為 6 維（旋轉 3 + 平移 3）。
+
+接著回代算 MapPoint 更新：
+
+$$\delta\mathbf{x}_p = [\delta\mathbf{p}_1, \delta\mathbf{p}_2, ..., \delta\mathbf{p}_M] \in \mathbb{R}^{3M}$$
+
+整體 $\delta\mathbf{x} = [\delta\mathbf{x}_c; \delta\mathbf{x}_p] \in \mathbb{R}^{24+3M}$。
+
+**bInit=false 的情況**（VIBA 2）：每個 KF 各有 bg、ba，所以 $\delta\mathbf{x}_c$ 變 30 維（k=2 時），整體 $30 + 3M$ 維。
 
 ---
 
