@@ -304,7 +304,7 @@ void LocalMapping::Run()
                     queueLen = (int)mlNewKeyFrames.size();
                 }
 
-                int csvTrackingLost = (mpTracker &&
+              int csvTrackingLost = (mpTracker &&
                     (mpTracker->mState == Tracking::LOST ||
                      mpTracker->mState == Tracking::RECENTLY_LOST)) ? 1 : 0;
 
@@ -1287,83 +1287,85 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
     if(mpAtlas->KeyFramesInMap()<nMinKF)
         return;
 
-    // Retrieve all keyframe in temporal order
+    // Retrieve all keyframe in temporal order 按時間順序擷取所有關鍵幀
+    //建立KF鏈
     list<KeyFrame*> lpKF;
     KeyFrame* pKF = mpCurrentKeyFrame;
-    while(pKF->mPrevKF)
+    while(pKF->mPrevKF)//mPrevKF 是一條單向鏈，從最新指向最舊，只包含有預積分連接的 KF。
     {
-        lpKF.push_front(pKF);
-        pKF = pKF->mPrevKF;
+        lpKF.push_front(pKF);// 插到最前面 
+        pKF = pKF->mPrevKF; // 往前一個 
     }
-    lpKF.push_front(pKF);
+    lpKF.push_front(pKF);// 把最舊的 KF 也加進去
     vector<KeyFrame*> vpKF(lpKF.begin(),lpKF.end());
 
-    if(vpKF.size()<nMinKF)
+    if(vpKF.size()<nMinKF)//確認數量
         return;
 
-    mFirstTs=vpKF.front()->mTimeStamp;
-    if(mpCurrentKeyFrame->mTimeStamp-mFirstTs<minTime)
+    mFirstTs=vpKF.front()->mTimeStamp;//vpKF.front() = 最舊的 KF（KF0）
+    if(mpCurrentKeyFrame->mTimeStamp-mFirstTs<minTime)//確認時間
         return;
 
-    bInitializing = true;
+    bInitializing = true;//設定初始化旗標，告訴其他執行緒「我正在初始化，不要打擾」
 
-    while(CheckNewKeyFrames())
+    while(CheckNewKeyFrames())// 把 queue 裡還沒處理的 KF 全部消化掉，一起納入初始化
     {
         ProcessNewKeyFrame();
         vpKF.push_back(mpCurrentKeyFrame);
         lpKF.push_back(mpCurrentKeyFrame);
     }
 
-    const int N = vpKF.size();
-    IMU::Bias b(0,0,0,0,0,0);
+    const int N = vpKF.size();// N：參與初始化的 KF 總數 
+    IMU::Bias b(0,0,0,0,0,0);//b：一個全零的 bias，作為後續估計重力方向時的初始假設
 
     // Compute and KF velocities mRwg estimation
     if (!mpCurrentKeyFrame->GetMap()->isImuInitialized())
     {
         Eigen::Matrix3f Rwg;
         Eigen::Vector3f dirG;
-        dirG.setZero();
-        for(vector<KeyFrame*>::iterator itKF = vpKF.begin(); itKF!=vpKF.end(); itKF++)
+        dirG.setZero();//dirG：一個用來累積估計重力方向的向量，初始為零
+        for(vector<KeyFrame*>::iterator itKF = vpKF.begin(); itKF!=vpKF.end(); itKF++)//遍歷所有參與初始化的 KF，利用它們的預積分 IMU 資訊來估計重力方向和 KF 的速度
         {
-            if (!(*itKF)->mpImuPreintegrated)
-                continue;
+            if (!(*itKF)->mpImuPreintegrated)// 沒有 preintegration 資料
+                continue;//跳過無效 KF
             if (!(*itKF)->mPrevKF)
-                continue;
+                continue;//跳過無效 KF
 
-            dirG -= (*itKF)->mPrevKF->GetImuRotation() * (*itKF)->mpImuPreintegrated->GetUpdatedDeltaVelocity();
-            Eigen::Vector3f _vel = ((*itKF)->GetImuPosition() - (*itKF)->mPrevKF->GetImuPosition())/(*itKF)->mpImuPreintegrated->dT;
-            (*itKF)->SetVelocity(_vel);
-            (*itKF)->mPrevKF->SetVelocity(_vel);
+            dirG -= (*itKF)->mPrevKF->GetImuRotation() * (*itKF)->mpImuPreintegrated->GetUpdatedDeltaVelocity();//累加重力方向，GetUpdatedDeltaVelocity()在 IMU body frame 下，從 prevKF 到此 KF 的速度變化 ΔV 
+            Eigen::Vector3f _vel = ((*itKF)->GetImuPosition() - (*itKF)->mPrevKF->GetImuPosition())/(*itKF)->mpImuPreintegrated->dT;//粗估速度 _vel ：平均速度估計（位移 / 時間）
+            (*itKF)->SetVelocity(_vel);//把粗估速度存回 KF，供後續優化使用
+            (*itKF)->mPrevKF->SetVelocity(_vel);//把粗估速度也存回 prevKF，供後續優化使用
         }
 
-        dirG = dirG/dirG.norm();
-        Eigen::Vector3f gI(0.0f, 0.0f, -1.0f);
-        Eigen::Vector3f v = gI.cross(dirG);
+        dirG = dirG/dirG.norm();//歸一化重力方向  變成單位向量，只保留方向。
+        Eigen::Vector3f gI(0.0f, 0.0f, -1.0f);//gI：IMU座標系下的重力方向，初始為(0,0,-1) 定義標準重力方向:理想世界座標系下，重力應該是沿 -Z 軸，這是目標方向。 
+        Eigen::Vector3f v = gI.cross(dirG);// 旋轉軸
         const float nv = v.norm();
-        const float cosg = gI.dot(dirG);
-        const float ang = acos(cosg);
-        Eigen::Vector3f vzg = v*ang/nv;
-        Rwg = Sophus::SO3f::exp(vzg).matrix();
-        mRwg = Rwg.cast<double>();
-        mTinit = mpCurrentKeyFrame->mTimeStamp-mFirstTs;
+        const float cosg = gI.dot(dirG);//cos(θ)
+        const float ang = acos(cosg);// θ（旋轉角）
+        Eigen::Vector3f vzg = v*ang/nv;//組成軸角向量 一個向量同時編碼了轉哪個方向和轉多少角度。
+        Rwg = Sophus::SO3f::exp(vzg).matrix();//轉成SO(3) 旋轉矩陣
+        //Rwg 記錄了「需要旋轉多少」才能讓 -Z 對齊重力
+        mRwg = Rwg.cast<double>();//轉成 double 精度並儲存結果
+        mTinit = mpCurrentKeyFrame->mTimeStamp-mFirstTs;//記錄此次初始化的時間跨度，供外層決定下一階段 
     }
     else
     {
-        mRwg = Eigen::Matrix3d::Identity();
-        mbg = mpCurrentKeyFrame->GetGyroBias().cast<double>();
-        mba = mpCurrentKeyFrame->GetAccBias().cast<double>();
+        mRwg = Eigen::Matrix3d::Identity();//重力方向在第一次初始化時已經對齊過了，世界座標系的 -Z 已經是重力方向，不需要再旋轉，所以 Rwg = 單位矩陣（不旋轉）。 
+        mbg = mpCurrentKeyFrame->GetGyroBias().cast<double>();//繼承已有的 bias 估計
+        mba = mpCurrentKeyFrame->GetAccBias().cast<double>();//繼承已有的 bias 估計
     }
 
     mScale=1.0;
 
-    mInitTime = mpTracker->mLastFrame.mTimeStamp-vpKF.front()->mTimeStamp;
+    mInitTime = mpTracker->mLastFrame.mTimeStamp-vpKF.front()->mTimeStamp;//未使用到的變數 vpKF.front()（最舊 KF）mLastFrame（Tracker 的最後一幀，包含非 KF 的普通幀）
 
     std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
     Optimizer::InertialOptimization(mpAtlas->GetCurrentMap(), mRwg, mScale, mbg, mba, mbMonocular, infoInertial, false, false, priorG, priorA);
 
     std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
 
-    if (mScale<1e-1)
+    if (mScale<1e-1)//檢查尺度有沒有被inertialoptimization弄壞
     {
         cout << "scale too small" << endl;
         bInitializing=false;
@@ -1372,31 +1374,31 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
 
     // Before this line we are not changing the map
     {
-        unique_lock<mutex> lock(mpAtlas->GetCurrentMap()->mMutexMapUpdate);
+        unique_lock<mutex> lock(mpAtlas->GetCurrentMap()->mMutexMapUpdate);//在這之前只是計算，不動地圖。從這行開始要修改地圖，需要加鎖防止 Tracking 同時讀取。
         if ((fabs(mScale - 1.f) > 0.00001) || !mbMonocular) {
-            Sophus::SE3f Twg(mRwg.cast<float>().transpose(), Eigen::Vector3f::Zero());
-            mpAtlas->GetCurrentMap()->ApplyScaledRotation(Twg, mScale, true);
-            mpTracker->UpdateFrameIMU(mScale, vpKF[0]->GetImuBias(), mpCurrentKeyFrame);
+            Sophus::SE3f Twg(mRwg.cast<float>().transpose(), Eigen::Vector3f::Zero());//建立重力對齊變換
+            mpAtlas->GetCurrentMap()->ApplyScaledRotation(Twg, mScale, true);//對地圖裡所有 KF 位姿、速度、MapPoint 位置同時套用：旋轉 Twg（重力對齊） 縮放 mScale（尺度修正）
+            mpTracker->UpdateFrameIMU(mScale, vpKF[0]->GetImuBias(), mpCurrentKeyFrame);//把 scale 和 bias 同步回 Tracking 執行緒的當前幀，確保兩個執行緒狀態一致。
         }
 
         // Check if initialization OK
-        if (!mpAtlas->isImuInitialized())
+        if (!mpAtlas->isImuInitialized())// 只在第一次初始化時執行（VIBA 1/2 時 isImuInitialized() 已經是 true，跳過）。
             for (int i = 0; i < N; i++) {
                 KeyFrame *pKF2 = vpKF[i];
-                pKF2->bImu = true;
+                pKF2->bImu = true;//// 標記這個 KF 參與了 IMU 初始化 bImu = true 讓後續的優化（BA）知道這些 KF 可以加入 IMU 約束邊。
             }
     }
-
+    //標記 IMU 初始化完成
     mpTracker->UpdateFrameIMU(1.0,vpKF[0]->GetImuBias(),mpCurrentKeyFrame);
     if (!mpAtlas->isImuInitialized())
     {
-        mpAtlas->SetImuInitialized();
-        mpTracker->t0IMU = mpTracker->mCurrentFrame.mTimeStamp;
-        mpCurrentKeyFrame->bImu = true;
+        mpAtlas->SetImuInitialized(); // 全局旗標設為 true
+        mpTracker->t0IMU = mpTracker->mCurrentFrame.mTimeStamp;// 記錄初始化時間點    
+        mpCurrentKeyFrame->bImu = true;// 當前 KF 標記為 IMU KF 
     }
 
     std::chrono::steady_clock::time_point t4 = std::chrono::steady_clock::now();
-    if (bFIBA)
+    if (bFIBA)//true，意味著每次初始化都會跑 Full Inertial BA。 
     {
         if (priorA!=0.f)
             Optimizer::FullInertialBA(mpAtlas->GetCurrentMap(), 100, false, mpCurrentKeyFrame->mnId, NULL, true, priorG, priorA);
@@ -1421,7 +1423,7 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
         lpKF.push_back(mpCurrentKeyFrame);
     }
 
-    // Correct keyframes starting at map first keyframe
+    // Correct keyframes starting at map first keyframe  這行用它來初始化 lpKFtoCheck，作為後續廣度優先遍歷（BFS）整棵 KF spanning tree 的起點：  
     list<KeyFrame*> lpKFtoCheck(mpAtlas->GetCurrentMap()->mvpKeyFrameOrigins.begin(),mpAtlas->GetCurrentMap()->mvpKeyFrameOrigins.end());
 
     while(!lpKFtoCheck.empty())
@@ -1477,13 +1479,13 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
     {
         MapPoint* pMP = vpMPs[i];
 
-        if(pMP->isBad())
+        if(pMP->isBad())//跳過無效 MP 
             continue;
 
-        if(pMP->mnBAGlobalForKF==GBAid)
+        if(pMP->mnBAGlobalForKF==GBAid)//mnBAGlobalForKF  記錄這個 MP 上次被哪次 BA 優化（用 KF id 標記）,GBAid  這次 BA 的 id（mpCurrentKeyFrame->mnId）
         {
             // If optimized by Global BA, just update
-            pMP->SetWorldPos(pMP->mPosGBA);
+            pMP->SetWorldPos(pMP->mPosGBA);// mPosGBA BA 優化後的新位置
         }
         else
         {
@@ -1503,20 +1505,20 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
 
     Verbose::PrintMess("Map updated!", Verbose::VERBOSITY_NORMAL);
 
-    mnKFs=vpKF.size();
-    mIdxInit++;
+    mnKFs=vpKF.size();// 記錄這次初始化用了幾個 KF
+    mIdxInit++;// 初始化執行次數 +1（粗初始化/VIBA1/VIBA2 各算一次）
 
-    for(list<KeyFrame*>::iterator lit = mlNewKeyFrames.begin(), lend=mlNewKeyFrames.end(); lit!=lend; lit++)
+    for(list<KeyFrame*>::iterator lit = mlNewKeyFrames.begin(), lend=mlNewKeyFrames.end(); lit!=lend; lit++)//清理初始化期間積累的新 KF  
     {
-        (*lit)->SetBadFlag();
-        delete *lit;
+        (*lit)->SetBadFlag();// 標記為壞 KF
+        delete *lit;// 釋放記憶體 
     }
-    mlNewKeyFrames.clear();
+    mlNewKeyFrames.clear();//mlNewKeyFrames 是初始化執行期間 Tracking 送進來但還沒處理的 KF。 這些 KF 在初始化過程中沒有被納入優化，位姿可能不一致，直接丟棄讓系統重新建立。  
 
-    mpTracker->mState=Tracking::OK;
-    bInitializing = false;
+    mpTracker->mState=Tracking::OK;// 通知 Tracking 初始化完成，可以繼續追蹤
+    bInitializing = false;// 解除初始化鎖，LocalMapping 恢復正常工作  bInitializing = true 期間，LocalMapping 會拒絕某些操作（如 Loop Closing 觸發的 BA），這裡解除。  
 
-    mpCurrentKeyFrame->GetMap()->IncreaseChangeIndex();
+    mpCurrentKeyFrame->GetMap()->IncreaseChangeIndex();// 通知地圖已變更   地圖的 ChangeIndex +1，讓 Tracking 偵測到地圖有更新：  
 
     return;
 }
