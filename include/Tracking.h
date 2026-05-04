@@ -396,6 +396,7 @@ protected:
         int  local_map_mp_count = 0;
         int  local_kf_count     = 0;
         bool map_updated        = false;
+        int  total_maps         = 0;
 
         // relocalization
         bool reloc_attempted       = false;

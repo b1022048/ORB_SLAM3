@@ -178,6 +178,7 @@ void Tracking::InitFrameLog(const std::string &path)
         "local_map_mp_count,"
         "local_kf_count,"
         "map_updated,"
+        "total_maps,"
     //重定位狀態
         "reloc_attempted,"
         "reloc_success,"
@@ -277,6 +278,7 @@ void Tracking::WriteFrameLog()
         << L.local_map_mp_count          << ","
         << L.local_kf_count              << ","
         << yn(L.map_updated)             << ","
+        << L.total_maps                  << ","
         << yn(L.reloc_attempted)         << ","
         << yn(L.reloc_success)           << ","
         << L.reloc_candidates            << ","
@@ -293,7 +295,7 @@ void Tracking::WriteFrameLog()
         << L.track_local_map_ms          << ","
         << L.need_new_kf_ms              << ","
         << L.total_tracking_ms           << "\n";
-if(L.frame_id % 10 == 0)// flush every 30 frames
+if(L.frame_id % 5 == 0)// flush every 5 frames
     mFrameLogFile.flush();
 }
 
@@ -2043,6 +2045,7 @@ void Tracking::Track()
     mCurLog.frame_id   = mCurrentFrame.mnId;
     mCurLog.timestamp  = mCurrentFrame.mTimeStamp;
     mCurLog.last_state = (int)mLastProcessedState;
+    mCurLog.state      = (int)mState;  // 記錄這一幀開始時的狀態，避免被後續 mState=OK 覆蓋
 
     if ((mSensor == System::IMU_MONOCULAR || mSensor == System::IMU_STEREO || mSensor == System::IMU_RGBD) && !mbCreatedMap)
     {
@@ -2094,6 +2097,8 @@ void Tracking::Track()
         if(mState!=OK) // If rightly initialized, mState=OK
         {
             mLastFrame = Frame(mCurrentFrame);
+            mCurLog.state = (int)mState;
+            WriteFrameLog();
             return;
         }
 
@@ -2220,6 +2225,8 @@ void Tracking::Track()
 
                     Verbose::PrintMess("done", Verbose::VERBOSITY_NORMAL);
 
+                    mCurLog.state = (int)mState;
+                    WriteFrameLog();
                     return;
                 }
             }
@@ -2508,7 +2515,6 @@ void Tracking::Track()
 
     // [Monitor] finalize and write log for this frame
     {
-        mCurLog.state        = (int)mState;
         mCurLog.final_inliers = mnMatchesInliers;
 
         // outlier ratio (based on TLM post-opt counts)
@@ -2523,7 +2529,8 @@ void Tracking::Track()
             mCurLog.total_kf_in_map = (int)pLogMap->KeyFramesInMap();
             mCurLog.total_mp_in_map = (int)mpAtlas->MapPointsInMap();
         }
-        mCurLog.map_updated = mbMapUpdated;
+        mCurLog.map_updated  = mbMapUpdated;
+        mCurLog.total_maps   = mpAtlas->CountMaps();
 
         // IMU bias norms
         if(mSensor==System::IMU_MONOCULAR || mSensor==System::IMU_STEREO || mSensor==System::IMU_RGBD)
