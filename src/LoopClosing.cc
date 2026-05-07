@@ -29,6 +29,8 @@
 #include<thread>
 #include<chrono>
 #include<iomanip>
+#include<algorithm>
+#include<cmath>
 
 
 namespace ORB_SLAM3
@@ -87,7 +89,10 @@ LoopClosing::LoopClosing(Atlas *pAtlas, KeyFrameDatabase *pDB, ORBVocabulary *pV
                   "sim3_scale,rot_x,rot_y,rot_z,rot_w,"
                   "trans_x,trans_y,trans_z,"
                   "inliers,reprojection_error,"
-                  "detection_ms,optimization_ms,scale_delta\n";
+                  "detection_ms,optimization_ms,scale_delta,"
+                  "source,rel_time_s,track_frame_id,map_id,loop_detected,merge_detected,"
+                  "gba_started,gba_finished,num_corrected_kfs,sim3_correction_trans_norm,"
+                  "sim3_correction_rot_deg,gba_time_ms,merge_time_ms,loop_time_ms\n";
     }
     else
     {
@@ -126,6 +131,34 @@ void LoopClosing::WriteLoopLog(const std::string&     event_type,
     Eigen::Quaterniond q = sim3.rotation();
     Eigen::Vector3d    t = sim3.translation();
     double scale_delta = scale - 1.0;
+    if(mLcFirstTimestamp < 0.0)
+        mLcFirstTimestamp = timestamp;
+    const double rel_time_s = timestamp - mLcFirstTimestamp;
+    const long unsigned int track_frame_id = mpCurrentKF ? mpCurrentKF->mnFrameId : 0;
+    Map* pCurrentMap = mpCurrentKF ? mpCurrentKF->GetMap() : static_cast<Map*>(NULL);
+    const long unsigned int map_id = pCurrentMap ? pCurrentMap->GetId() : 0;
+    const bool loop_event = (event_type == "LOOP_DETECTED" ||
+                             event_type == "LOOP_CLOSED" ||
+                             event_type == "LOOP_CLOSURE");
+    const bool merge_event = (event_type == "MAP_MERGE");
+    const bool gba_started = (event_type == "GBA_STARTED");
+    const bool gba_finished = (event_type == "GBA_FINISHED");
+    int num_corrected_kfs = -1;
+    if((event_type == "LOOP_CLOSED" || merge_event) && status == "SUCCESS")
+        num_corrected_kfs = mCsvLastCorrectedKFs;
+    else if(gba_started || gba_finished)
+        num_corrected_kfs = inliers;
+    const double qw_abs = std::min(1.0, std::max(-1.0, std::fabs(q.w())));
+    const double rot_deg = 2.0 * std::acos(qw_abs) * 180.0 / 3.14159265358979323846;
+    double merge_time_ms = -1.0;
+    double loop_time_ms = -1.0;
+    double gba_time_ms = -1.0;
+    if(merge_event)
+        merge_time_ms = optimization_ms;
+    else if(loop_event)
+        loop_time_ms = optimization_ms;
+    else if(gba_started || gba_finished)
+        gba_time_ms = optimization_ms;
 
     mLcCsv << std::fixed << std::setprecision(6)
            << event_type               << ","
@@ -156,7 +189,21 @@ void LoopClosing::WriteLoopLog(const std::string&     event_type,
            << detection_ms        << ","
            << optimization_ms     << ","
            << std::setprecision(6)
-           << scale_delta         << "\n";
+           << scale_delta         << ","
+           << "LoopClosing"       << ","
+           << rel_time_s          << ","
+           << track_frame_id      << ","
+           << map_id              << ","
+           << (loop_event ? "yes" : "no")     << ","
+           << (merge_event ? "yes" : "no")    << ","
+           << (gba_started ? "yes" : "no")    << ","
+           << (gba_finished ? "yes" : "no")   << ","
+           << num_corrected_kfs  << ","
+           << t.norm()           << ","
+           << rot_deg            << ","
+           << gba_time_ms        << ","
+           << merge_time_ms      << ","
+           << loop_time_ms       << "\n";
     mLcCsv.flush();
 }
 // ─────────────────────────────────────────────────────────────────────────
@@ -274,6 +321,7 @@ void LoopClosing::Run()
                         nMerges += 1;
 #endif
                         auto csv_merge_t0 = std::chrono::steady_clock::now();
+                        mCsvLastCorrectedKFs = -1;
                         // TODO UNCOMMENT
                         if (mpTracker->mSensor==System::IMU_MONOCULAR ||mpTracker->mSensor==System::IMU_STEREO || mpTracker->mSensor==System::IMU_RGBD)
                             MergeLocal2();//針對「慣性模態 (Inertial Mode)」 地圖合併不僅要對齊旋轉（Rotation）和平移（Translation），還必須處理尺度因子 (Scale Factor)。
@@ -366,7 +414,7 @@ void LoopClosing::Run()
                         {
                             cout << "BAD LOOP!!!" << endl;
                             bGoodLoop = false;
-                            WriteLoopLog("LOOP_CLOSURE", "FAILED",
+                            WriteLoopLog("LOOP_DETECTED", "FAILED",
                                          mpCurrentKF->mTimeStamp,
                                          mpCurrentKF->mnId,
                                          (long long int)mpLoopMatchedKF->mnId,
@@ -389,6 +437,7 @@ void LoopClosing::Run()
 
 #endif
                         auto csv_loop_t0 = std::chrono::steady_clock::now();
+                        mCsvLastCorrectedKFs = -1;
                         CorrectLoop();//執行迴圈校正（Loop Correction），這個函數會根據檢測到的迴圈變換對地圖進行全局優化，修正整個地圖的結構以消除累積誤差。
                         double csv_loop_ms = std::chrono::duration_cast<std::chrono::duration<double,std::milli>>(
                             std::chrono::steady_clock::now() - csv_loop_t0).count();
@@ -398,7 +447,7 @@ void LoopClosing::Run()
                         cout << "[LoopClosing] Scale error: " << scale_error
                              << " (scale factor: " << loop_scale << ")" << endl;
 
-                        WriteLoopLog("LOOP_CLOSURE", "SUCCESS",
+                        WriteLoopLog("LOOP_CLOSED", "SUCCESS",
                                      mpCurrentKF->mTimeStamp,
                                      mpCurrentKF->mnId,
                                      (long long int)mpLoopMatchedKF->mnId,
@@ -1302,6 +1351,8 @@ void LoopClosing::CorrectLoop()
         //cout << "LC: end replacing duplicated" << endl;
     }
 
+    mCsvLastCorrectedKFs = static_cast<int>(CorrectedSim3.size());
+
     // Project MapPoints observed in the neighborhood of the loop keyframe
     // into the current keyframe and neighbors using corrected poses.
     // Fuse duplications.
@@ -1631,6 +1682,8 @@ void LoopClosing::MergeLocal()
 
         //TODO DEBUG to know which are the KFs that had been moved to the other map
     }
+
+    mCsvLastCorrectedKFs = static_cast<int>(vCorrectedSim3.size());
 
     int numPointsWithCorrection = 0;
 
@@ -2218,6 +2271,7 @@ void LoopClosing::MergeLocal2()
     //cout << "start MergeInertialBA" << endl;
     Optimizer::MergeInertialBA(pCurrKF, mpMergeMatchedKF, &bStopFlag, pCurrentMap,CorrectedSim3);
     //cout << "end MergeInertialBA" << endl;
+    mCsvLastCorrectedKFs = static_cast<int>(CorrectedSim3.size());
 
     /*good = pCurrentMap->CheckEssentialGraph();
     if(!good)
@@ -2447,11 +2501,45 @@ void LoopClosing::RunGlobalBundleAdjustment(Map* pActiveMap, unsigned long nLoop
 #endif
 
     const bool bImuInit = pActiveMap->isImuInitialized();
+    auto csv_gba_t0 = std::chrono::steady_clock::now();
+    LcPipelineStats csvGBAStats;
+    g2o::Sim3 csvZeroSim3;
+    double csvGBATimestamp = 0.0;
+    long unsigned int csvGBAKfId = nLoopKF;
+    {
+        const vector<KeyFrame*> vpKFs = pActiveMap->GetAllKeyFrames();
+        for(size_t i=0; i<vpKFs.size(); ++i)
+        {
+            if(vpKFs[i] && vpKFs[i]->mnId == nLoopKF)
+            {
+                csvGBATimestamp = vpKFs[i]->mTimeStamp;
+                csvGBAKfId = vpKFs[i]->mnId;
+                break;
+            }
+        }
+    }
+    if(csvGBATimestamp <= 0.0 && mpCurrentKF)
+        csvGBATimestamp = mpCurrentKF->mTimeStamp;
+
+    WriteLoopLog("GBA_STARTED", "STARTED",
+                 csvGBATimestamp, csvGBAKfId, -1LL,
+                 csvGBAStats, csvZeroSim3,
+                 (int)pActiveMap->KeyFramesInMap(), -1.0,
+                 0.0, 0.0);
 
     if(!bImuInit)
         Optimizer::GlobalBundleAdjustemnt(pActiveMap,10,&mbStopGBA,nLoopKF,false);
     else
         Optimizer::FullInertialBA(pActiveMap,7,false,nLoopKF,&mbStopGBA);
+
+    double csv_gba_ms = std::chrono::duration_cast<std::chrono::duration<double,std::milli>>(
+        std::chrono::steady_clock::now() - csv_gba_t0).count();
+
+    WriteLoopLog("GBA_FINISHED", mbStopGBA ? "ABORTED" : "OPTIMIZED",
+                 csvGBATimestamp, csvGBAKfId, -1LL,
+                 csvGBAStats, csvZeroSim3,
+                 (int)pActiveMap->KeyFramesInMap(), -1.0,
+                 0.0, csv_gba_ms);
 
 #ifdef REGISTER_TIMES
     std::chrono::steady_clock::time_point time_EndGBA = std::chrono::steady_clock::now();

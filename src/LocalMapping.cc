@@ -28,9 +28,164 @@
 #include<chrono>
 #include<iomanip>
 #include<algorithm>
+#include<cmath>
+#include<map>
+#include<set>
 
 namespace ORB_SLAM3
 {
+namespace
+{
+const char* TrackingStateNameForLog(Tracking::eTrackingState s)
+{
+    switch(s)
+    {
+        case Tracking::SYSTEM_NOT_READY: return "SYSTEM_NOT_READY";
+        case Tracking::NO_IMAGES_YET: return "NO_IMAGES_YET";
+        case Tracking::NOT_INITIALIZED: return "NOT_INITIALIZED";
+        case Tracking::OK: return "OK";
+        case Tracking::RECENTLY_LOST: return "RECENTLY_LOST";
+        case Tracking::LOST: return "LOST";
+        case Tracking::OK_KLT: return "OK_KLT";
+        default: return "UNKNOWN";
+    }
+}
+
+struct KFCorrectionSnapshot
+{
+    Sophus::SE3f Tcw;
+    Eigen::Vector3f velocity;
+    IMU::Bias bias;
+    bool has_velocity = false;
+    bool has_bias = false;
+};
+
+double BiasDeltaNorm(const IMU::Bias &before, const IMU::Bias &after)
+{
+    const double dbax = static_cast<double>(after.bax - before.bax);
+    const double dbay = static_cast<double>(after.bay - before.bay);
+    const double dbaz = static_cast<double>(after.baz - before.baz);
+    const double dbwx = static_cast<double>(after.bwx - before.bwx);
+    const double dbwy = static_cast<double>(after.bwy - before.bwy);
+    const double dbwz = static_cast<double>(after.bwz - before.bwz);
+    return std::sqrt(dbax*dbax + dbay*dbay + dbaz*dbaz +
+                     dbwx*dbwx + dbwy*dbwy + dbwz*dbwz);
+}
+
+double RotationDeltaDeg(const Sophus::SE3f &before, const Sophus::SE3f &after)
+{
+    const Eigen::Matrix3f dR = after.rotationMatrix() * before.rotationMatrix().transpose();
+    double cos_angle = (static_cast<double>(dR.trace()) - 1.0) * 0.5;
+    cos_angle = std::max(-1.0, std::min(1.0, cos_angle));
+    return std::acos(cos_angle) * 180.0 / 3.14159265358979323846;
+}
+
+std::vector<KeyFrame*> CollectCorrectionKeyFrames(KeyFrame* pKF, bool bInertialBA, bool bLarge)
+{
+    std::vector<KeyFrame*> out;
+    std::set<KeyFrame*> seen;
+    if(!pKF)
+        return out;
+
+    Map* pMap = pKF->GetMap();
+    if(!pMap)
+        return out;
+    auto addKF = [&](KeyFrame* pKFi)
+    {
+        if(!pKFi || pKFi->isBad() || pKFi->GetMap() != pMap || seen.count(pKFi))
+            return;
+        seen.insert(pKFi);
+        out.push_back(pKFi);
+    };
+
+    addKF(pKF);
+
+    if(bInertialBA)
+    {
+        const int maxOpt = bLarge ? 25 : 10;
+        const int Nd = std::min(static_cast<int>(pMap->KeyFramesInMap()) - 2, maxOpt);
+        KeyFrame* pBack = pKF;
+        for(int i = 1; i < Nd && pBack && pBack->mPrevKF; ++i)
+        {
+            pBack = pBack->mPrevKF;
+            addKF(pBack);
+        }
+    }
+    else
+    {
+        const std::vector<KeyFrame*> vNeighKFs = pKF->GetVectorCovisibleKeyFrames();
+        for(size_t i = 0, iend = vNeighKFs.size(); i < iend; ++i)
+            addKF(vNeighKFs[i]);
+    }
+
+    return out;
+}
+
+std::map<long unsigned int, KFCorrectionSnapshot> SnapshotKeyFrames(const std::vector<KeyFrame*> &vpKFs)
+{
+    std::map<long unsigned int, KFCorrectionSnapshot> snapshots;
+    for(size_t i = 0, iend = vpKFs.size(); i < iend; ++i)
+    {
+        KeyFrame* pKF = vpKFs[i];
+        if(!pKF || pKF->isBad())
+            continue;
+
+        KFCorrectionSnapshot snap;
+        snap.Tcw = pKF->GetPose();
+        snap.has_velocity = pKF->isVelocitySet();
+        if(snap.has_velocity)
+            snap.velocity = pKF->GetVelocity();
+        snap.has_bias = pKF->bImu;
+        if(snap.has_bias)
+            snap.bias = pKF->GetImuBias();
+        snapshots[pKF->mnId] = snap;
+    }
+    return snapshots;
+}
+
+void ComputeCorrectionStats(const std::map<long unsigned int, KFCorrectionSnapshot> &before,
+                            const std::vector<KeyFrame*> &vpKFs,
+                            double &bias_delta_norm,
+                            double &velocity_delta_norm,
+                            double &pose_correction_trans_norm,
+                            double &pose_correction_rot_deg)
+{
+    bias_delta_norm = -1.0;
+    velocity_delta_norm = -1.0;
+    pose_correction_trans_norm = -1.0;
+    pose_correction_rot_deg = -1.0;
+
+    for(size_t i = 0, iend = vpKFs.size(); i < iend; ++i)
+    {
+        KeyFrame* pKF = vpKFs[i];
+        if(!pKF || pKF->isBad())
+            continue;
+
+        std::map<long unsigned int, KFCorrectionSnapshot>::const_iterator it = before.find(pKF->mnId);
+        if(it == before.end())
+            continue;
+
+        const KFCorrectionSnapshot &snap = it->second;
+        const Sophus::SE3f TcwAfter = pKF->GetPose();
+        const double trans_norm = static_cast<double>((TcwAfter.translation() - snap.Tcw.translation()).norm());
+        const double rot_deg = RotationDeltaDeg(snap.Tcw, TcwAfter);
+        pose_correction_trans_norm = std::max(pose_correction_trans_norm, trans_norm);
+        pose_correction_rot_deg = std::max(pose_correction_rot_deg, rot_deg);
+
+        if(snap.has_velocity && pKF->isVelocitySet())
+        {
+            const double vel_norm = static_cast<double>((pKF->GetVelocity() - snap.velocity).norm());
+            velocity_delta_norm = std::max(velocity_delta_norm, vel_norm);
+        }
+
+        if(snap.has_bias && pKF->bImu)
+        {
+            const double bias_norm = BiasDeltaNorm(snap.bias, pKF->GetImuBias());
+            bias_delta_norm = std::max(bias_delta_norm, bias_norm);
+        }
+    }
+}
+}
 
 LocalMapping::LocalMapping(System* pSys, Atlas *pAtlas, const float bMonocular, bool bInertial, const string &_strSeqName):
     mpSystem(pSys), mbMonocular(bMonocular), mbInertial(bInertial), mbResetRequested(false), mbResetRequestedActiveMap(false), mbFinishRequested(false), mbFinished(true), mpAtlas(pAtlas), bInitializing(false),
@@ -60,12 +215,20 @@ LocalMapping::LocalMapping(System* pSys, Atlas *pAtlas, const float bMonocular, 
     mCsvBADone        = 0;
     mCsvBAAborted     = 0;
     mCsvBAIters       = 0;
+    mCsvFirstTimestamp = -1.0;
     f_lm_csv.open("localmapping_log.csv");
     f_lm_csv << "localmappingnumber,kf_id,track_frame_id,timestamp_ms,"
                 "kf_insertion_ms,"
                 "map_points_total,new_map_points,queue_length,kf_culled,"
                 "mean_reprojection_error,max_reprojection_error,"
-                "optimization_time_ms,ba_executed,ba_aborted,ba_iters,tracking_lost\n";
+                "optimization_time_ms,ba_executed,ba_aborted,ba_iters,tracking_lost,"
+                "source,event_type,timestamp,rel_time_s,map_id,tracking_state,imu_initialized,"
+                "ba_type,num_opt_kf,num_fixed_kf,num_mappoints,num_edges,"
+                "visual_chi2_before,visual_chi2_after,imu_chi2_before,imu_chi2_after,"
+                "imu_chi2_mean,imu_chi2_max,imu_rot_res_mean,imu_vel_res_mean,imu_pos_res_mean,"
+                "gyro_rw_chi2,acc_rw_chi2,bias_delta_norm,velocity_delta_norm,"
+                "pose_correction_trans_norm,pose_correction_rot_deg,"
+                "init_scale,init_bg_norm,init_ba_norm,init_prior_g,init_prior_a,init_full_ba\n";
 }
 
 void LocalMapping::SetLoopCloser(LoopClosing* pLoopCloser)
@@ -140,6 +303,15 @@ void LocalMapping::Run()
             int num_OptKF_BA = 0;
             int num_MPs_BA = 0;
             int num_edges_BA = 0;
+            string csvBAType = "none";
+            Optimizer::InertialResidualStats csvBAStatsBefore;
+            Optimizer::InertialResidualStats csvBAStatsAfter;
+            std::vector<KeyFrame*> csvCorrectionKFs;
+            std::map<long unsigned int, KFCorrectionSnapshot> csvCorrectionBefore;
+            double csvBiasDeltaNorm = -1.0;
+            double csvVelocityDeltaNorm = -1.0;
+            double csvPoseCorrectionTransNorm = -1.0;
+            double csvPoseCorrectionRotDeg = -1.0;
             mCsvOptimMs       = 0.0;
             mCsvMeanReprojErr = 0.0;
             mCsvMaxReprojErr  = 0.0;
@@ -151,8 +323,6 @@ void LocalMapping::Run()
             {
                 if(mpAtlas->KeyFramesInMap()>2)
                 {
-                    auto csv_ba_t0 = std::chrono::steady_clock::now();
-
                     if(mbInertial && mpCurrentKeyFrame->GetMap()->isImuInitialized())
                     {
                         float dist = (mpCurrentKeyFrame->mPrevKF->GetCameraCenter() - mpCurrentKeyFrame->GetCameraCenter()).norm() +
@@ -173,19 +343,37 @@ void LocalMapping::Run()
                         }
 
                         bool bLarge = ((mpTracker->GetMatchesInliers()>75)&&mbMonocular)||((mpTracker->GetMatchesInliers()>100)&&!mbMonocular);
-                        Optimizer::LocalInertialBA(mpCurrentKeyFrame, &mbAbortBA, mpCurrentKeyFrame->GetMap(),num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA, mCsvBAIters, bLarge, !mpCurrentKeyFrame->GetMap()->GetIniertialBA2());
+                        csvBAType = "LocalInertialBA";
+                        csvCorrectionKFs = CollectCorrectionKeyFrames(mpCurrentKeyFrame, true, bLarge);
+                        csvCorrectionBefore = SnapshotKeyFrames(csvCorrectionKFs);
+                        auto csv_ba_t0 = std::chrono::steady_clock::now();
+                        Optimizer::LocalInertialBA(mpCurrentKeyFrame, &mbAbortBA, mpCurrentKeyFrame->GetMap(),num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA, mCsvBAIters, bLarge, !mpCurrentKeyFrame->GetMap()->GetIniertialBA2(), &csvBAStatsAfter, &csvBAStatsBefore);
+                        mCsvOptimMs = std::chrono::duration_cast<std::chrono::duration<double,std::milli>>(
+                            std::chrono::steady_clock::now() - csv_ba_t0).count();
                         b_doneLBA = true;
                     }
                     else
                     {
-                        Optimizer::LocalBundleAdjustment(mpCurrentKeyFrame,&mbAbortBA, mpCurrentKeyFrame->GetMap(),num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA, mCsvBAIters);
+                        csvBAType = "LocalBundleAdjustment";
+                        csvCorrectionKFs = CollectCorrectionKeyFrames(mpCurrentKeyFrame, false, false);
+                        csvCorrectionBefore = SnapshotKeyFrames(csvCorrectionKFs);
+                        auto csv_ba_t0 = std::chrono::steady_clock::now();
+                        Optimizer::LocalBundleAdjustment(mpCurrentKeyFrame,&mbAbortBA, mpCurrentKeyFrame->GetMap(),num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA, mCsvBAIters, &csvBAStatsAfter, &csvBAStatsBefore);
+                        mCsvOptimMs = std::chrono::duration_cast<std::chrono::duration<double,std::milli>>(
+                            std::chrono::steady_clock::now() - csv_ba_t0).count();
                         b_doneLBA = true;
                     }
 
-                    mCsvOptimMs = std::chrono::duration_cast<std::chrono::duration<double,std::milli>>(
-                        std::chrono::steady_clock::now() - csv_ba_t0).count();
                     mCsvBADone    = b_doneLBA ? 1 : 0;
                     mCsvBAAborted = (b_doneLBA && mbAbortBA) ? 1 : 0;
+                    if(b_doneLBA)
+                    {
+                        ComputeCorrectionStats(csvCorrectionBefore, csvCorrectionKFs,
+                                               csvBiasDeltaNorm,
+                                               csvVelocityDeltaNorm,
+                                               csvPoseCorrectionTransNorm,
+                                               csvPoseCorrectionRotDeg);
+                    }
 
                     if(b_doneLBA && !mbAbortBA)
                         ComputeLocalWindowReprojErrors(mCsvMeanReprojErr, mCsvMaxReprojErr);
@@ -307,6 +495,17 @@ void LocalMapping::Run()
               int csvTrackingLost = (mpTracker &&
                     (mpTracker->mState == Tracking::LOST ||
                      mpTracker->mState == Tracking::RECENTLY_LOST)) ? 1 : 0;
+                const double kfTimestamp = mpCurrentKeyFrame->mTimeStamp;
+                if(mCsvFirstTimestamp < 0.0)
+                    mCsvFirstTimestamp = kfTimestamp;
+                const double relTimeS = kfTimestamp - mCsvFirstTimestamp;
+                Map* pCsvMap = mpCurrentKeyFrame->GetMap();
+                const long unsigned int csvMapId = pCsvMap ? pCsvMap->GetId() : 0;
+                const bool csvImuInitialized = pCsvMap && pCsvMap->isImuInitialized();
+                const string csvEventType = b_doneLBA ?
+                    (csvBAType == "LocalInertialBA" ? "LOCAL_INERTIAL_BA" : "LOCAL_BA") :
+                    "KF_PROCESSED";
+                const char* csvTrackingState = mpTracker ? TrackingStateNameForLog(mpTracker->mState) : "UNKNOWN";
 
                 f_lm_csv
                     << ++mLMIteration                              << ","
@@ -327,7 +526,41 @@ void LocalMapping::Run()
                     << mCsvBADone                                  << ","
                     << mCsvBAAborted                               << ","
                     << mCsvBAIters                                 << ","
-                    << csvTrackingLost                             << "\n";
+                    << csvTrackingLost                             << ","
+                    << "LocalMapping"                              << ","
+                    << csvEventType                                << ","
+                    << std::setprecision(6)
+                    << kfTimestamp                                 << ","
+                    << relTimeS                                    << ","
+                    << csvMapId                                    << ","
+                    << csvTrackingState                            << ","
+                    << (csvImuInitialized ? "yes" : "no")          << ","
+                    << csvBAType                                   << ","
+                    << num_OptKF_BA                                << ","
+                    << num_FixedKF_BA                              << ","
+                    << num_MPs_BA                                  << ","
+                    << num_edges_BA                                << ","
+                    << csvBAStatsBefore.visual_chi2_mean           << ","
+                    << csvBAStatsAfter.visual_chi2_mean            << ","
+                    << csvBAStatsBefore.chi2_mean                  << ","
+                    << csvBAStatsAfter.chi2_mean                   << ","
+                    << csvBAStatsAfter.chi2_mean                   << ","
+                    << csvBAStatsAfter.chi2_max                    << ","
+                    << csvBAStatsAfter.rot_norm                    << ","
+                    << csvBAStatsAfter.vel_norm                    << ","
+                    << csvBAStatsAfter.pos_norm                    << ","
+                    << csvBAStatsAfter.gyro_rw_chi2                << ","
+                    << csvBAStatsAfter.acc_rw_chi2                 << ","
+                    << csvBiasDeltaNorm                            << ","
+                    << csvVelocityDeltaNorm                        << ","
+                    << csvPoseCorrectionTransNorm                  << ","
+                    << csvPoseCorrectionRotDeg                     << ","
+                    << -1.0                                       << ","
+                    << -1.0                                       << ","
+                    << -1.0                                       << ","
+                    << -1.0                                       << ","
+                    << -1.0                                       << ","
+                    << 0                                          << "\n";
                 if(mLMIteration % 30 == 0)  // flush every 30 iterations
                     f_lm_csv.flush();
             }
@@ -1407,6 +1640,77 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
     }
 
     std::chrono::steady_clock::time_point t5 = std::chrono::steady_clock::now();
+
+    if(f_lm_csv.is_open() && mpCurrentKeyFrame)
+    {
+        const double kfTimestamp = mpCurrentKeyFrame->mTimeStamp;
+        if(mCsvFirstTimestamp < 0.0)
+            mCsvFirstTimestamp = kfTimestamp;
+        Map* pCsvMap = mpCurrentKeyFrame->GetMap();
+        const long unsigned int csvMapId = pCsvMap ? pCsvMap->GetId() : 0;
+        const bool csvImuInitialized = pCsvMap && pCsvMap->isImuInitialized();
+        const double initOptimMs = std::chrono::duration_cast<std::chrono::duration<double,std::milli>>(
+            t5 - t0).count();
+        const int queueLen = KeyframesInQueue();
+        const char* csvTrackingState = mpTracker ? TrackingStateNameForLog(mpTracker->mState) : "UNKNOWN";
+        const string csvBAType = bFIBA ? "InertialOptimizationInit+FullInertialBA" : "InertialOptimizationInit";
+
+        f_lm_csv
+            << ++mLMIteration                              << ","
+            << (long long)mpCurrentKeyFrame->mnId           << ","
+            << (long long)mpCurrentKeyFrame->mnFrameId      << ","
+            << std::fixed << std::setprecision(3)
+            << kfTimestamp * 1000.0                         << ","
+            << -1.0                                        << ","
+            << (int)mpAtlas->MapPointsInMap()               << ","
+            << (int)mlpRecentAddedMapPoints.size()          << ","
+            << queueLen                                     << ","
+            << 0                                            << ","
+            << std::setprecision(4)
+            << -1.0                                        << ","
+            << -1.0                                        << ","
+            << std::setprecision(3)
+            << initOptimMs                                  << ","
+            << 1                                            << ","
+            << 0                                            << ","
+            << (bFIBA ? 100 : -1)                           << ","
+            << 0                                            << ","
+            << "LocalMapping"                               << ","
+            << "IMU_INITIALIZATION"                         << ","
+            << std::setprecision(6)
+            << kfTimestamp                                  << ","
+            << (kfTimestamp - mCsvFirstTimestamp)            << ","
+            << csvMapId                                     << ","
+            << csvTrackingState                             << ","
+            << (csvImuInitialized ? "yes" : "no")           << ","
+            << csvBAType                                    << ","
+            << N                                            << ","
+            << -1                                           << ","
+            << (int)mpAtlas->MapPointsInMap()               << ","
+            << -1                                           << ","
+            << -1.0                                        << ","
+            << -1.0                                        << ","
+            << -1.0                                        << ","
+            << -1.0                                        << ","
+            << -1.0                                        << ","
+            << -1.0                                        << ","
+            << -1.0                                        << ","
+            << -1.0                                        << ","
+            << -1.0                                        << ","
+            << -1.0                                        << ","
+            << -1.0                                        << ","
+            << -1.0                                        << ","
+            << -1.0                                        << ","
+            << -1.0                                        << ","
+            << -1.0                                        << ","
+            << mScale                                      << ","
+            << mbg.norm()                                  << ","
+            << mba.norm()                                  << ","
+            << priorG                                      << ","
+            << priorA                                      << ","
+            << (bFIBA ? 1 : 0)                              << "\n";
+        f_lm_csv.flush();
+    }
 
     Verbose::PrintMess("Global Bundle Adjustment finished\nUpdating map ...", Verbose::VERBOSITY_NORMAL);
 

@@ -359,6 +359,8 @@ protected:
         // identity
         long unsigned int frame_id  = 0;
         double            timestamp = 0.0;
+        long unsigned int kf_id = 0;
+        long unsigned int map_id = 0;
 
         // state
         int state      = 0;   // eTrackingState value
@@ -410,6 +412,20 @@ protected:
         bool imu_predicted   = false;
         float bias_acc_norm  = 0.f;
         float bias_gyro_norm = 0.f;
+
+        // residual / correction diagnostics. -1 means unavailable for this frame.
+        double visual_chi2_mean = -1.0;
+        double visual_chi2_max  = -1.0;
+        double imu_chi2_mean    = -1.0;
+        double imu_chi2_max     = -1.0;
+        double imu_rot_res_norm = -1.0;
+        double imu_vel_res_norm = -1.0;
+        double imu_pos_res_norm = -1.0;
+        double gyro_rw_chi2     = -1.0;
+        double acc_rw_chi2      = -1.0;
+        double pose_update_norm     = -1.0;
+        double velocity_update_norm = -1.0;
+        double bias_update_norm     = -1.0;
 
         // timing (ms)
         double preintegration_ms    = 0.0;

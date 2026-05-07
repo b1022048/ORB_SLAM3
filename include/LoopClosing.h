@@ -273,6 +273,8 @@ protected:
     LcPipelineStats mLastMergeDetStats;
     std::ofstream mLcCsv;
     std::mutex    mMutexLcCsv;
+    double        mLcFirstTimestamp = -1.0;
+    int           mCsvLastCorrectedKFs = -1;
     // ──────────────────────────────────────────────────────────────────────
 };
 

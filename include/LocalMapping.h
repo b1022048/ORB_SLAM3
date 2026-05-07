@@ -207,6 +207,7 @@ protected:
     int      mCsvBADone;      // 1 if Local BA was executed this iteration
     int      mCsvBAAborted;   // 1 if Local BA was aborted mid-iteration
     int      mCsvBAIters;     // actual g2o iterations performed
+    double   mCsvFirstTimestamp; // first LocalMapping dataset timestamp for rel_time_s
 
     };
 

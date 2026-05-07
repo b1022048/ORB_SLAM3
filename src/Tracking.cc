@@ -195,7 +195,25 @@ void Tracking::InitFrameLog(const std::string &path)
         "pose_pred_ms,"
         "track_local_map_ms,"
         "need_new_kf_ms,"
-        "total_tracking_ms\n";
+        "total_tracking_ms,"
+        "source,"
+        "event_type,"
+        "kf_id,"
+        "track_frame_id,"
+        "map_id,"
+        "tracking_state,"
+        "visual_chi2_mean,"
+        "visual_chi2_max,"
+        "imu_chi2_mean,"
+        "imu_chi2_max,"
+        "imu_rot_res_norm,"
+        "imu_vel_res_norm,"
+        "imu_pos_res_norm,"
+        "gyro_rw_chi2,"
+        "acc_rw_chi2,"
+        "pose_update_norm,"
+        "velocity_update_norm,"
+        "bias_update_norm\n";
     mFrameLogFile.flush();
 }
 
@@ -294,7 +312,26 @@ void Tracking::WriteFrameLog()
         << L.pose_pred_ms                << ","
         << L.track_local_map_ms          << ","
         << L.need_new_kf_ms              << ","
-        << L.total_tracking_ms           << "\n";
+        << L.total_tracking_ms           << ","
+        << "Tracking"                    << ","
+        << "FRAME_PROCESSED"             << ","
+        << L.kf_id                       << ","
+        << L.frame_id                    << ","
+        << L.map_id                      << ","
+        << stateStr(L.state)             << ","
+        << std::setprecision(6)
+        << L.visual_chi2_mean            << ","
+        << L.visual_chi2_max             << ","
+        << L.imu_chi2_mean               << ","
+        << L.imu_chi2_max                << ","
+        << L.imu_rot_res_norm            << ","
+        << L.imu_vel_res_norm            << ","
+        << L.imu_pos_res_norm            << ","
+        << L.gyro_rw_chi2                << ","
+        << L.acc_rw_chi2                 << ","
+        << L.pose_update_norm            << ","
+        << L.velocity_update_norm        << ","
+        << L.bias_update_norm            << "\n";
 if(L.frame_id % 5 == 0)// flush every 5 frames
     mFrameLogFile.flush();
 }
@@ -2528,7 +2565,10 @@ void Tracking::Track()
         {
             mCurLog.total_kf_in_map = (int)pLogMap->KeyFramesInMap();
             mCurLog.total_mp_in_map = (int)mpAtlas->MapPointsInMap();
+            mCurLog.map_id = pLogMap->GetId();
         }
+        if(mpLastKeyFrame)
+            mCurLog.kf_id = mpLastKeyFrame->mnId;
         mCurLog.map_updated  = mbMapUpdated;
         mCurLog.total_maps   = mpAtlas->CountMaps();
 
@@ -3239,6 +3279,10 @@ bool Tracking::TrackLocalMap()
     mCurLog.matches_before_tlm_opt  = aux1;   // [Monitor]
     mCurLog.outliers_before_tlm_opt = aux2;    // [Monitor]
 
+    const Sophus::SE3f TcwBefore = mCurrentFrame.GetPose();
+    const Eigen::Vector3f velBefore = mCurrentFrame.GetVelocity();
+    const IMU::Bias biasBefore = mCurrentFrame.mImuBias;
+
     int inliers;
     if (!mpAtlas->isImuInitialized())
     {
@@ -3259,17 +3303,51 @@ bool Tracking::TrackLocalMap()
             if(!mbMapUpdated) //  && (mnMatchesInliers>30))
             {
                 Verbose::PrintMess("TLM: PoseInertialOptimizationLastFrame ", Verbose::VERBOSITY_DEBUG);
-                inliers = Optimizer::PoseInertialOptimizationLastFrame(&mCurrentFrame); // , !mpLastKeyFrame->GetMap()->GetIniertialBA1());
+                Optimizer::InertialResidualStats inertialStats;
+                inliers = Optimizer::PoseInertialOptimizationLastFrame(&mCurrentFrame, false, &inertialStats); // , !mpLastKeyFrame->GetMap()->GetIniertialBA1());
                 mCurLog.opt_type = 1;   // [Monitor]
+                mCurLog.visual_chi2_mean = inertialStats.visual_chi2_mean;
+                mCurLog.visual_chi2_max  = inertialStats.visual_chi2_max;
+                mCurLog.imu_chi2_mean    = inertialStats.chi2_mean;
+                mCurLog.imu_chi2_max     = inertialStats.chi2_max;
+                mCurLog.imu_rot_res_norm = inertialStats.rot_norm;
+                mCurLog.imu_vel_res_norm = inertialStats.vel_norm;
+                mCurLog.imu_pos_res_norm = inertialStats.pos_norm;
+                mCurLog.gyro_rw_chi2     = inertialStats.gyro_rw_chi2;
+                mCurLog.acc_rw_chi2      = inertialStats.acc_rw_chi2;
             }
             else
             {
                 Verbose::PrintMess("TLM: PoseInertialOptimizationLastKeyFrame ", Verbose::VERBOSITY_DEBUG);
-                inliers = Optimizer::PoseInertialOptimizationLastKeyFrame(&mCurrentFrame); // , !mpLastKeyFrame->GetMap()->GetIniertialBA1());
+                Optimizer::InertialResidualStats inertialStats;
+                inliers = Optimizer::PoseInertialOptimizationLastKeyFrame(&mCurrentFrame, false, &inertialStats); // , !mpLastKeyFrame->GetMap()->GetIniertialBA1());
                 mCurLog.opt_type = 2;   // [Monitor]
+                mCurLog.visual_chi2_mean = inertialStats.visual_chi2_mean;
+                mCurLog.visual_chi2_max  = inertialStats.visual_chi2_max;
+                mCurLog.imu_chi2_mean    = inertialStats.chi2_mean;
+                mCurLog.imu_chi2_max     = inertialStats.chi2_max;
+                mCurLog.imu_rot_res_norm = inertialStats.rot_norm;
+                mCurLog.imu_vel_res_norm = inertialStats.vel_norm;
+                mCurLog.imu_pos_res_norm = inertialStats.pos_norm;
+                mCurLog.gyro_rw_chi2     = inertialStats.gyro_rw_chi2;
+                mCurLog.acc_rw_chi2      = inertialStats.acc_rw_chi2;
             }
         }
     }
+
+    const Sophus::SE3f TcwAfter = mCurrentFrame.GetPose();
+    const Eigen::Vector3f velAfter = mCurrentFrame.GetVelocity();
+    const IMU::Bias &biasAfter = mCurrentFrame.mImuBias;
+    mCurLog.pose_update_norm = (TcwAfter.translation() - TcwBefore.translation()).norm();
+    mCurLog.velocity_update_norm = (velAfter - velBefore).norm();
+    const double dbax = biasAfter.bax - biasBefore.bax;
+    const double dbay = biasAfter.bay - biasBefore.bay;
+    const double dbaz = biasAfter.baz - biasBefore.baz;
+    const double dbwx = biasAfter.bwx - biasBefore.bwx;
+    const double dbwy = biasAfter.bwy - biasBefore.bwy;
+    const double dbwz = biasAfter.bwz - biasBefore.bwz;
+    mCurLog.bias_update_norm = std::sqrt(dbax*dbax + dbay*dbay + dbaz*dbaz +
+                                         dbwx*dbwx + dbwy*dbwy + dbwz*dbwz);
 
     aux1 = 0, aux2 = 0;
     for(int i=0; i<mCurrentFrame.N; i++)
