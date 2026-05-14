@@ -1283,6 +1283,36 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
             lLocalKeyFrames.push_back(pKFi);
     }
 
+
+
+    // Bridge scene transitions: include spanning tree parent's neighborhood開關，調整鄰居幀的數量，讓過渡幀進入局部地圖，拉入舊的固定關鍵幀
+    // so pre-transition MPs enter the local map and pull in old fixed KFs
+    KeyFrame* pParentKF = pKF->GetParent();
+    if(pParentKF && pParentKF->mnBALocalForKF != pKF->mnId &&!pParentKF->isBad() && pParentKF->GetMap() == pCurrentMap)
+    {
+        pParentKF->mnBALocalForKF = pKF->mnId;
+        lLocalKeyFrames.push_back(pParentKF);
+        const vector<KeyFrame*> vParentNeighs = pParentKF->GetBestCovisibilityKeyFrames(5);
+        for(KeyFrame* pKFi : vParentNeighs)
+        {
+            if(pKFi->mnBALocalForKF != pKF->mnId)
+            {
+                pKFi->mnBALocalForKF = pKF->mnId;
+                if(!pKFi->isBad() && pKFi->GetMap() == pCurrentMap)
+                    lLocalKeyFrames.push_back(pKFi);
+            }
+        }
+    }
+
+
+
+
+
+
+
+
+
+
     // Local MapPoints seen in Local KeyFrames
     num_fixedKF = 0;
     list<MapPoint*> lLocalMapPoints;
