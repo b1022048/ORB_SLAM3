@@ -1587,6 +1587,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
         }
     }
     num_edges = nEdges;
+    num_MPs = nPoints;
 
     if(pbStopFlag)
         if(*pbStopFlag)
@@ -3026,6 +3027,11 @@ void Optimizer::LocalInertialBA(KeyFrame *pKF, bool *pbStopFlag, Map *pMap, int&
     {
         assert(mit->second>=3);
     }
+
+    num_MPs     = (int)lLocalMapPoints.size();
+    num_edges   = (int)(vpEdgesMono.size() + vpEdgesStereo.size());
+    num_OptKF   = (int)(vpOptimizableKFs.size() + lpOptVisKFs.size());
+    num_fixedKF = (int)lFixedKeyFrames.size();
 
     optimizer.initializeOptimization();
     optimizer.computeActiveErrors();
