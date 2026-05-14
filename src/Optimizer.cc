@@ -1274,7 +1274,8 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
     pKF->mnBALocalForKF = pKF->mnId;
     Map* pCurrentMap = pKF->GetMap();
 
-    const vector<KeyFrame*> vNeighKFs = pKF->GetVectorCovisibleKeyFrames();
+    // const vector<KeyFrame*> vNeighKFs = pKF->GetVectorCovisibleKeyFrames(20);//開關鄰居幀的數量，讓過渡幀進入局部地圖，拉入舊的固定關鍵幀
+    const vector<KeyFrame*> vNeighKFs = pKF->GetBestCovisibilityKeyFrames(20);
     for(int i=0, iend=vNeighKFs.size(); i<iend; i++)
     {
         KeyFrame* pKFi = vNeighKFs[i];
