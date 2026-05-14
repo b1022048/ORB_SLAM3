@@ -410,9 +410,6 @@ evaluation/stereo_euroc_m05_tracking_log.csv
 evaluation/stereo_euroc_v101_localmapping_log.csv
 evaluation/stereo_euroc_v101_loop_closing_log.csv
 evaluation/stereo_euroc_v101_tracking_log.csv
-evaluation/stereo_euroc_v102_localmapping_log.csv
-evaluation/stereo_euroc_v102_loop_closing_log.csv
-evaluation/stereo_euroc_v102_tracking_log.csv
 evaluation/stereo_euroc_v103_localmapping_log.csv
 evaluation/stereo_euroc_v103_loop_closing_log.csv
 evaluation/stereo_euroc_v103_tracking_log.csv
@@ -603,3 +600,24 @@ evaluation/trajectory_stereo_euroc_v203.pdf
 evaluation/trajectory_stereo_imu_euroc_v203.pdf
 study/2026.05.07-吳冠璋 .pptx
 study/2026.05.07.2-吳冠璋 .pptx
+evaluation/benchmark_results_20260513_161847.csv
+evaluation/benchmark_results_20260513_162318.csv
+evaluation/benchmark_results_20260513_162529.csv
+evaluation/benchmark_results_20260513_163041.csv
+evaluation/benchmark_results_20260513_164616.csv
+evaluation/benchmark_results_20260513_170008.csv
+evaluation/benchmark_results_20260513_172610.csv
+evaluation/benchmark_results_20260513_173150.csv
+evaluation/benchmark_results_20260513_192054.csv
+evaluation/benchmark_results_20260513_193001.csv
+evaluation/benchmark_results_20260513_193937.csv
+evaluation/benchmark_results_20260513_204952.csv
+evaluation/benchmark_results_20260514_100217.csv
+evaluation/diagnosis_stereo_euroc_m04_intervals.csv
+evaluation/diagnosis_stereo_euroc_m04.pdf
+evaluation/diagnosis_stereo_euroc_m05.pdf
+evaluation/diagnosis_stereo_euroc_v201.pdf
+evaluation/trajectory_stereo_euroc_m04.pdf
+evaluation/trajectory_stereo_euroc_m05.pdf
+evaluation/trajectory_stereo_euroc_v201.pdf
+evaluation/benchmark_results_20260514_102022.csv

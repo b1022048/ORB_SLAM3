@@ -469,8 +469,8 @@ void LocalMapping::Run()
             vdLBASync_ms.push_back(timeKFCulling_ms);
             vdKFCullingSync_ms.push_back(timeKFCulling_ms);
 #endif
-
-            mpLoopCloser->InsertKeyFrame(mpCurrentKeyFrame);
+//開關loopclosing的插入keyframe，讓localmapping的迴圈更快結束，方便debug localmapping的部分
+            //mpLoopCloser->InsertKeyFrame(mpCurrentKeyFrame);
 
 #ifdef REGISTER_TIMES
             std::chrono::steady_clock::time_point time_EndLocalMap = std::chrono::steady_clock::now();
@@ -1057,7 +1057,7 @@ void LocalMapping::SearchInNeighbors()
     // Extend to some second neighbors if abort is not requested
     for(int i=0, imax=vpTargetKFs.size(); i<imax; i++)
     {
-        const vector<KeyFrame*> vpSecondNeighKFs = vpTargetKFs[i]->GetBestCovisibilityKeyFrames(20);
+        const vector<KeyFrame*> vpSecondNeighKFs = vpTargetKFs[i]->GetBestCovisibilityKeyFrames(5);//這裡是將第一層鄰居的前五個鄰居加入到第二層鄰居中,開關這裡可以讓 localmapping 的迴圈更快結束，方便 debug localmapping 的部分
         for(vector<KeyFrame*>::const_iterator vit2=vpSecondNeighKFs.begin(), vend2=vpSecondNeighKFs.end(); vit2!=vend2; vit2++)
         {
             KeyFrame* pKFi2 = *vit2;

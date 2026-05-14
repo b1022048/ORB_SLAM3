@@ -80,6 +80,9 @@ TUM_DATA         = ROOT_DIR / "/media/lab405/Windows1/data/TUM"
 EUROC_DATA       = ROOT_DIR / "/media/lab405/Windows1/data/Euroc"
 EVALUATE_ATE_PY  = SCRIPT_DIR / "evaluate_ate_scale.py"
 
+GT_EUROC_LEFT_CAM = SCRIPT_DIR / "Ground_truth/EuRoC_left_cam"
+GT_EUROC_IMU      = SCRIPT_DIR / "Ground_truth/EuRoC_imu"
+
 # ─────────────────────────────────────────────
 #  演算法設定
 #
@@ -132,6 +135,7 @@ ALGO_CONFIGS: dict = {
         "out_prefix_e": "mono_euroc",
         "out_prefix_t": "mono_tum",
         "evo_align":    "-as",                     # monocular: align + scale
+        "euroc_gt_type": "left_cam",               # GT 來源：left camera frame
     },
     "mono_inertial": {
         "label":        "Mono-Inertial",
@@ -147,6 +151,7 @@ ALGO_CONFIGS: dict = {
         "out_prefix_e": "mimu_euroc",
         "out_prefix_t": "mimu_tum",
         "evo_align":    "-a",                      # inertial: scale known, align only
+        "euroc_gt_type": "imu",                    # GT 來源：IMU/body frame
     },
     "stereo": {
         "label":        "Stereo",
@@ -162,6 +167,7 @@ ALGO_CONFIGS: dict = {
         "out_prefix_e": "stereo_euroc",
         "out_prefix_t": "stereo_tum",
         "evo_align":    "-a",                      # stereo: align only
+        "euroc_gt_type": "left_cam",               # GT 來源：left camera frame
     },
     "stereo_inertial": {
         "label":        "Stereo-Inertial",
@@ -177,6 +183,7 @@ ALGO_CONFIGS: dict = {
         "out_prefix_e": "stereo_imu_euroc",
         "out_prefix_t": "stereo_imu_tum",
         "evo_align":    "-a",                      # stereo: align only
+        "euroc_gt_type": "imu",                    # GT 來源：IMU/body frame
     },
 }
 
@@ -187,11 +194,11 @@ ALGO_CONFIGS: dict = {
 # ─────────────────────────────────────────────
 EUROC_DATASETS = [
     # ("V1_01_easy",      "V101", "v101"),
-    # ("V1_02_medium",    "V102", "v102"),
+    ("V1_02_medium",    "V102", "v102"),
     # ("V1_03_difficult", "V103", "v103"),
     # ("V2_01_easy", "V201", "v201"),
     # ("V2_02_medium", "V202", "v202"),
-    ("V2_03_difficult", "V203", "v203"),
+    # ("V2_03_difficult", "V203", "v203"),
     # ("MH_01_easy", "MH01", "m01"),
     # ("MH_02_easy", "MH02", "m02"),
     # ("MH_03_medium", "MH03", "m03"),
@@ -259,6 +266,25 @@ def parse_evo_rmse(stdout: str, stderr: str) -> float | None:
     if match:
         return float(match.group(1))
     return None
+
+
+def resolve_euroc_gt(ts_stem: str, gt_type: str) -> str:
+    """
+    根據 ts_stem（如 'V102'、'V201'、'MH01'）和 gt_type 找到本地 GT 檔案路徑。
+
+    gt_type='left_cam'：
+        GT_EUROC_LEFT_CAM/{ts_stem}_GT.txt
+        例：V102 → Ground_truth/EuRoC_left_cam/V102_GT.txt
+
+    gt_type='imu'：
+        GT_EUROC_IMU/{group}_GT.txt，group 取 ts_stem 前 2 字元
+        例：V102 → V1_GT.txt；V201 → V2_GT.txt；MH01 → MH_GT.txt
+    """
+    if gt_type == "left_cam":
+        return str(GT_EUROC_LEFT_CAM / f"{ts_stem}_GT.txt")
+    else:  # imu
+        group = ts_stem[:2]   # "V1", "V2", "MH"
+        return str(GT_EUROC_IMU / f"{group}_GT.txt")
 
 
 def resolve_euroc_seq_path(seq_folder: str) -> Path | None:
@@ -691,7 +717,7 @@ def run_euroc(cfg: dict, seq_folder: str, ts_stem: str, seq_suffix: str,
         return entry
 
     times_file = cfg["euroc_ts_dir"] / f"{ts_stem}.txt"
-    gt_csv     = str(seq_path / "mav0/state_groundtruth_estimate0/data.csv")
+    gt_csv     = resolve_euroc_gt(ts_stem, cfg.get("euroc_gt_type", "left_cam"))
     binary     = cfg["bin_dir"] / cfg["bin_euroc"]
 
     if "run" in steps:

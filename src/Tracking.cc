@@ -2199,6 +2199,8 @@ void Tracking::Track()
                         // cout << "KF in map: " << pCurrentMap->KeyFramesInMap() << endl;
                         mState = RECENTLY_LOST;
                         mTimeStampLost = mCurrentFrame.mTimeStamp;
+                        //開關LOST跟RECENTLY_LOST
+                        // mState = LOST;
                     }
                     else
                     {
