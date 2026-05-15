@@ -1594,61 +1594,61 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
         if(*pbStopFlag)
             return;
     //開關，原版設定
-    // optimizer.initializeOptimization();
-    // CollectVisualResidualStats(vpEdgesMono, vpEdgesBody, vpEdgesStereo, pStatsBefore);
-    // num_iters = optimizer.optimize(10);
-    // CollectVisualResidualStats(vpEdgesMono, vpEdgesBody, vpEdgesStereo, pStats);
+    optimizer.initializeOptimization();
+    CollectVisualResidualStats(vpEdgesMono, vpEdgesBody, vpEdgesStereo, pStatsBefore);
+    num_iters = optimizer.optimize(10);
+    CollectVisualResidualStats(vpEdgesMono, vpEdgesBody, vpEdgesStereo, pStats);
 
 
     //=====================2的=============================
 
 
     // ── 第一階段：5次，含 robust kernel ──
-    optimizer.initializeOptimization();
-    CollectVisualResidualStats(vpEdgesMono, vpEdgesBody, vpEdgesStereo, pStatsBefore);
-    optimizer.optimize(5);
+    // optimizer.initializeOptimization();
+    // CollectVisualResidualStats(vpEdgesMono, vpEdgesBody, vpEdgesStereo, pStatsBefore);
+    // optimizer.optimize(5);
 
-    bool bDoMore = true;
-    if(pbStopFlag)
-        if(*pbStopFlag)
-            bDoMore = false;
+    // bool bDoMore = true;
+    // if(pbStopFlag)
+    //     if(*pbStopFlag)
+    //         bDoMore = false;
 
-    if(bDoMore)
-    {
-    // 把 outlier 設 level(1)，移除 robust kernel
-    for(size_t i=0, iend=vpEdgesMono.size(); i<iend; i++)
-    {
-        ORB_SLAM3::EdgeSE3ProjectXYZ* e = vpEdgesMono[i];
-        MapPoint* pMP = vpMapPointEdgeMono[i];
-        if(pMP->isBad()) continue;
-        if(e->chi2()>5.991 || !e->isDepthPositive())
-            e->setLevel(1);
-        e->setRobustKernel(0);
-    }
-    for(size_t i=0, iend=vpEdgesBody.size(); i<iend; i++)
-    {
-        ORB_SLAM3::EdgeSE3ProjectXYZToBody* e = vpEdgesBody[i];
-        MapPoint* pMP = vpMapPointEdgeBody[i];
-        if(pMP->isBad()) continue;
-        if(e->chi2()>5.991 || !e->isDepthPositive())
-            e->setLevel(1);
-        e->setRobustKernel(0);
-    }
-    for(size_t i=0, iend=vpEdgesStereo.size(); i<iend; i++)
-    {
-        g2o::EdgeStereoSE3ProjectXYZ* e = vpEdgesStereo[i];
-        MapPoint* pMP = vpMapPointEdgeStereo[i];
-        if(pMP->isBad()) continue;
-        if(e->chi2()>7.815 || !e->isDepthPositive())
-            e->setLevel(1);
-        e->setRobustKernel(0);
-    }
+    // if(bDoMore)
+    // {
+    // // 把 outlier 設 level(1)，移除 robust kernel
+    // for(size_t i=0, iend=vpEdgesMono.size(); i<iend; i++)
+    // {
+    //     ORB_SLAM3::EdgeSE3ProjectXYZ* e = vpEdgesMono[i];
+    //     MapPoint* pMP = vpMapPointEdgeMono[i];
+    //     if(pMP->isBad()) continue;
+    //     if(e->chi2()>5.991 || !e->isDepthPositive())
+    //         e->setLevel(1);
+    //     e->setRobustKernel(0);
+    // }
+    // for(size_t i=0, iend=vpEdgesBody.size(); i<iend; i++)
+    // {
+    //     ORB_SLAM3::EdgeSE3ProjectXYZToBody* e = vpEdgesBody[i];
+    //     MapPoint* pMP = vpMapPointEdgeBody[i];
+    //     if(pMP->isBad()) continue;
+    //     if(e->chi2()>5.991 || !e->isDepthPositive())
+    //         e->setLevel(1);
+    //     e->setRobustKernel(0);
+    // }
+    // for(size_t i=0, iend=vpEdgesStereo.size(); i<iend; i++)
+    // {
+    //     g2o::EdgeStereoSE3ProjectXYZ* e = vpEdgesStereo[i];
+    //     MapPoint* pMP = vpMapPointEdgeStereo[i];
+    //     if(pMP->isBad()) continue;
+    //     if(e->chi2()>7.815 || !e->isDepthPositive())
+    //         e->setLevel(1);
+    //     e->setRobustKernel(0);
+    // }
 
-    // ── 第二階段：10次，不含 outlier 也不含 robust kernel ──
-    optimizer.initializeOptimization(0);
-    num_iters = optimizer.optimize(10);
-    CollectVisualResidualStats(vpEdgesMono, vpEdgesBody, vpEdgesStereo, pStats);
-    }
+    // // ── 第二階段：10次，不含 outlier 也不含 robust kernel ──
+    // optimizer.initializeOptimization(0);
+    // num_iters = optimizer.optimize(10);
+    // CollectVisualResidualStats(vpEdgesMono, vpEdgesBody, vpEdgesStereo, pStats);
+    // }
 
 
     //=====================2的=============================
