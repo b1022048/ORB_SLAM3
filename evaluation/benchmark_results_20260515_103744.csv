@@ -1,0 +1,2 @@
+algo,dataset,sequence,output_name,rmse,note
+Stereo,EuRoC,V1_02_medium,stereo_euroc_v102,0.270363,OK

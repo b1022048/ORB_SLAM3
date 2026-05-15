@@ -1274,8 +1274,8 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
     pKF->mnBALocalForKF = pKF->mnId;
     Map* pCurrentMap = pKF->GetMap();
 
-    // const vector<KeyFrame*> vNeighKFs = pKF->GetVectorCovisibleKeyFrames(20);//開關鄰居幀的數量，讓過渡幀進入局部地圖，拉入舊的固定關鍵幀
-    const vector<KeyFrame*> vNeighKFs = pKF->GetBestCovisibilityKeyFrames(20);
+    const vector<KeyFrame*> vNeighKFs = pKF->GetVectorCovisibleKeyFrames();//開關鄰居幀的數量，讓過渡幀進入局部地圖，拉入舊的固定關鍵幀
+    //const vector<KeyFrame*> vNeighKFs = pKF->GetBestCovisibilityKeyFrames(20);
     for(int i=0, iend=vNeighKFs.size(); i<iend; i++)
     {
         KeyFrame* pKFi = vNeighKFs[i];
@@ -1319,21 +1319,21 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
     // Bridge scene transitions: include spanning tree parent's neighborhood開關，調整鄰居幀的數量，讓過渡幀進入局部地圖，拉入舊的固定關鍵幀
     // Bridge scene transitions: add parent KF's MPs to local map so pre-transition
     // KFs appear as fixed anchors without making parent itself optimizable
-    KeyFrame* pParentKF = pKF->GetParent();
-    if(pParentKF && !pParentKF->isBad() && pParentKF->GetMap() == pCurrentMap
-        && pParentKF->mnBALocalForKF != pKF->mnId)
-    {
-        vector<MapPoint*> vpParentMPs = pParentKF->GetMapPointMatches();
-        for(MapPoint* pMP : vpParentMPs)
-        {
-            if(pMP && !pMP->isBad() && pMP->GetMap() == pCurrentMap
-            && pMP->mnBALocalForKF != pKF->mnId)
-            {
-                lLocalMapPoints.push_back(pMP);
-                pMP->mnBALocalForKF = pKF->mnId;
-            }
-        }
-    }
+    // KeyFrame* pParentKF = pKF->GetParent();
+    // if(pParentKF && !pParentKF->isBad() && pParentKF->GetMap() == pCurrentMap
+    //     && pParentKF->mnBALocalForKF != pKF->mnId)
+    // {
+    //     vector<MapPoint*> vpParentMPs = pParentKF->GetMapPointMatches();
+    //     for(MapPoint* pMP : vpParentMPs)
+    //     {
+    //         if(pMP && !pMP->isBad() && pMP->GetMap() == pCurrentMap
+    //         && pMP->mnBALocalForKF != pKF->mnId)
+    //         {
+    //             lLocalMapPoints.push_back(pMP);
+    //             pMP->mnBALocalForKF = pKF->mnId;
+    //         }
+    //     }
+    // }
 
 
 
@@ -1593,11 +1593,66 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
     if(pbStopFlag)
         if(*pbStopFlag)
             return;
+    //開關，原版設定
+    // optimizer.initializeOptimization();
+    // CollectVisualResidualStats(vpEdgesMono, vpEdgesBody, vpEdgesStereo, pStatsBefore);
+    // num_iters = optimizer.optimize(10);
+    // CollectVisualResidualStats(vpEdgesMono, vpEdgesBody, vpEdgesStereo, pStats);
 
+
+    //=====================2的=============================
+
+
+    // ── 第一階段：5次，含 robust kernel ──
     optimizer.initializeOptimization();
     CollectVisualResidualStats(vpEdgesMono, vpEdgesBody, vpEdgesStereo, pStatsBefore);
+    optimizer.optimize(5);
+
+    bool bDoMore = true;
+    if(pbStopFlag)
+        if(*pbStopFlag)
+            bDoMore = false;
+
+    if(bDoMore)
+    {
+    // 把 outlier 設 level(1)，移除 robust kernel
+    for(size_t i=0, iend=vpEdgesMono.size(); i<iend; i++)
+    {
+        ORB_SLAM3::EdgeSE3ProjectXYZ* e = vpEdgesMono[i];
+        MapPoint* pMP = vpMapPointEdgeMono[i];
+        if(pMP->isBad()) continue;
+        if(e->chi2()>5.991 || !e->isDepthPositive())
+            e->setLevel(1);
+        e->setRobustKernel(0);
+    }
+    for(size_t i=0, iend=vpEdgesBody.size(); i<iend; i++)
+    {
+        ORB_SLAM3::EdgeSE3ProjectXYZToBody* e = vpEdgesBody[i];
+        MapPoint* pMP = vpMapPointEdgeBody[i];
+        if(pMP->isBad()) continue;
+        if(e->chi2()>5.991 || !e->isDepthPositive())
+            e->setLevel(1);
+        e->setRobustKernel(0);
+    }
+    for(size_t i=0, iend=vpEdgesStereo.size(); i<iend; i++)
+    {
+        g2o::EdgeStereoSE3ProjectXYZ* e = vpEdgesStereo[i];
+        MapPoint* pMP = vpMapPointEdgeStereo[i];
+        if(pMP->isBad()) continue;
+        if(e->chi2()>7.815 || !e->isDepthPositive())
+            e->setLevel(1);
+        e->setRobustKernel(0);
+    }
+
+    // ── 第二階段：10次，不含 outlier 也不含 robust kernel ──
+    optimizer.initializeOptimization(0);
     num_iters = optimizer.optimize(10);
     CollectVisualResidualStats(vpEdgesMono, vpEdgesBody, vpEdgesStereo, pStats);
+    }
+
+
+    //=====================2的=============================
+
 
     vector<pair<KeyFrame*,MapPoint*> > vToErase;
     vToErase.reserve(vpEdgesMono.size()+vpEdgesBody.size()+vpEdgesStereo.size());
