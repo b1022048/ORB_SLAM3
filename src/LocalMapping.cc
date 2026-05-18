@@ -272,7 +272,7 @@ void LocalMapping::Run()
 #endif
 
             // Check recent MapPoints
-            MapPointCulling();
+            MapPointCulling();//開關
 #ifdef REGISTER_TIMES
             std::chrono::steady_clock::time_point time_EndMPCulling = std::chrono::steady_clock::now();
 
@@ -411,7 +411,7 @@ void LocalMapping::Run()
 
                 // Check redundant local Keyframes
                 mCsvKFCulled = 0;
-                KeyFrameCulling();
+                KeyFrameCulling();//開關
 
 #ifdef REGISTER_TIMES
                 std::chrono::steady_clock::time_point time_EndKFCulling = std::chrono::steady_clock::now();
@@ -470,7 +470,7 @@ void LocalMapping::Run()
             vdKFCullingSync_ms.push_back(timeKFCulling_ms);
 #endif
 //開關loopclosing的插入keyframe，讓localmapping的迴圈更快結束，方便debug localmapping的部分
-           // mpLoopCloser->InsertKeyFrame(mpCurrentKeyFrame);
+            mpLoopCloser->InsertKeyFrame(mpCurrentKeyFrame);
 
 #ifdef REGISTER_TIMES
             std::chrono::steady_clock::time_point time_EndLocalMap = std::chrono::steady_clock::now();
@@ -1288,7 +1288,7 @@ void LocalMapping::KeyFrameCulling()
                     }
 
                     nMPs++;
-                    if(pMP->Observations()>thObs)
+                    if(pMP->Observations()>thObs)//開關
                     {
                         const int &scaleLevel = (pKF -> NLeft == -1) ? pKF->mvKeysUn[i].octave
                                                                      : (i < pKF -> NLeft) ? pKF -> mvKeys[i].octave
@@ -1319,11 +1319,11 @@ void LocalMapping::KeyFrameCulling()
                             if(scaleLeveli<=scaleLevel+1)
                             {
                                 nObs++;
-                                if(nObs>thObs)
+                                if(nObs>thObs)//開關
                                     break;
                             }
                         }
-                        if(nObs>thObs)
+                        if(nObs>thObs)//開關
                         {
                             nRedundantObservations++;
                         }

@@ -2267,7 +2267,39 @@ void Tracking::Track()
                     mCurLog.state = (int)mState;
                     WriteFrameLog();
                     return;
-                }
+                }//開關lost後還是在同一張圖進行重定位
+
+
+                // else if (mState == LOST)
+                // {
+                //  if (pCurrentMap->KeyFramesInMap()<10)
+                //     {
+                //     mpSystem->ResetActiveMap();
+                //     Verbose::PrintMess("Reseting current map...", Verbose::VERBOSITY_NORMAL);
+                //     if(mpLastKeyFrame)
+                //         mpLastKeyFrame = static_cast<KeyFrame*>(NULL);
+                //     mCurLog.state = (int)mState;
+                //      WriteFrameLog();
+                //     return;
+                //     }
+                //     else
+                //     {
+                //     // SLAM2-style: keep trying relocalization in the same map
+                //     bool bRelocOK = Relocalization();
+                //     if(bRelocOK)
+                //     {
+                //         mState = OK;
+                //         Verbose::PrintMess("Relocalized in existing map", Verbose::VERBOSITY_NORMAL);
+                //     }
+                //     else
+                //     {
+                //         mCurLog.state = (int)mState;
+                //         WriteFrameLog();
+                //         return;
+                //     }
+                //     }
+                // }
+                  
             }
 
         }
