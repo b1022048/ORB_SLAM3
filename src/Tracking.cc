@@ -789,8 +789,14 @@ void Tracking::newParameterLoader(Settings *settings) {
             mDepthMapFactor = 1.0f/mDepthMapFactor;
     }
 
-    mMinFrames = 0;
+    // mMinFrames = 0;
+    // mMaxFrames = settings->fps();//開關 限制速度
+
     mMaxFrames = settings->fps();
+    mMinFrames = mMaxFrames / 4;
+
+
+
     mbRGB = settings->rgb();
 
     //ORB parameters
@@ -1362,8 +1368,12 @@ bool Tracking::ParseCamParamFile(cv::FileStorage &fSettings)
         fps=30;
 
     // Max/Min Frames to insert keyframes and to check relocalisation
-    mMinFrames = 0;
+    // mMinFrames = 0;
+    // mMaxFrames = fps;//開關 限制速度
+
     mMaxFrames = fps;
+    mMinFrames = mMaxFrames / 4;
+
 
     cout << "- fps: " << fps << endl;
 
@@ -3652,10 +3662,10 @@ void Tracking::CreateNewKeyFrame()
         // We create all those MapPoints whose depth < mThDepth.
         // If there are less than 100 close points we create the 100 closest.
         // int maxPoint = 100;//開關maxPoint
-        int maxPoint = 50;
+        int maxPoint = 100;
         if(mSensor == System::IMU_STEREO || mSensor == System::IMU_RGBD)
             // maxPoint = 100;//開關maxPoint
-            maxPoint = 50;
+            maxPoint = 100;
 
         vector<pair<float,int> > vDepthIdx;
         int N = (mCurrentFrame.Nleft != -1) ? mCurrentFrame.Nleft : mCurrentFrame.N;
