@@ -2197,10 +2197,10 @@ void Tracking::Track()
                     else if(pCurrentMap->KeyFramesInMap()>10)
                     {
                         // cout << "KF in map: " << pCurrentMap->KeyFramesInMap() << endl;
-                        mState = RECENTLY_LOST;
-                        mTimeStampLost = mCurrentFrame.mTimeStamp;
+                        // mState = RECENTLY_LOST;
+                        // mTimeStampLost = mCurrentFrame.mTimeStamp;
                         //開關LOST跟RECENTLY_LOST
-                        // mState = LOST;
+                        mState = LOST;
                     }
                     else
                     {
@@ -2434,10 +2434,12 @@ void Tracking::Track()
                     mpSystem->ResetActiveMap();
                 }
 
-                mState=RECENTLY_LOST;
+                // mState=RECENTLY_LOST;//開關LOST跟RECENTLY_LOST
+                mState=LOST;
             }
             else
-                mState=RECENTLY_LOST; // visual to lost
+                // mState=RECENTLY_LOST; // visual to lost 開關LOST跟RECENTLY_LOST
+                mState=LOST;
 
             /*if(mCurrentFrame.mnId>mnLastRelocFrameId+mMaxFrames)
             {*/
@@ -3649,9 +3651,11 @@ void Tracking::CreateNewKeyFrame()
         // We sort points by the measured depth by the stereo/RGBD sensor.
         // We create all those MapPoints whose depth < mThDepth.
         // If there are less than 100 close points we create the 100 closest.
-        int maxPoint = 100;
+        // int maxPoint = 100;//開關maxPoint
+        int maxPoint = 50;
         if(mSensor == System::IMU_STEREO || mSensor == System::IMU_RGBD)
-            maxPoint = 100;
+            // maxPoint = 100;//開關maxPoint
+            maxPoint = 50;
 
         vector<pair<float,int> > vDepthIdx;
         int N = (mCurrentFrame.Nleft != -1) ? mCurrentFrame.Nleft : mCurrentFrame.N;

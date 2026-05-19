@@ -470,7 +470,7 @@ void LocalMapping::Run()
             vdKFCullingSync_ms.push_back(timeKFCulling_ms);
 #endif
 //開關loopclosing的插入keyframe，讓localmapping的迴圈更快結束，方便debug localmapping的部分
-            mpLoopCloser->InsertKeyFrame(mpCurrentKeyFrame);
+            //mpLoopCloser->InsertKeyFrame(mpCurrentKeyFrame);
 
 #ifdef REGISTER_TIMES
             std::chrono::steady_clock::time_point time_EndLocalMap = std::chrono::steady_clock::now();
@@ -711,7 +711,8 @@ void LocalMapping::MapPointCulling()
 void LocalMapping::CreateNewMapPoints()
 {
     // Retrieve neighbor keyframes in covisibility graph
-    int nn = 10;
+    // int nn = 10;// ← 20（stereo 增加鄰近 KF 搜尋數）開關
+    int nn = 2;
     // For stereo inertial case
     if(mbMonocular)
         nn=30;

@@ -1274,7 +1274,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
     pKF->mnBALocalForKF = pKF->mnId;
     Map* pCurrentMap = pKF->GetMap();
 
-    const vector<KeyFrame*> vNeighKFs = pKF->GetVectorCovisibleKeyFrames();//開關鄰居幀的數量，讓過渡幀進入局部地圖，拉入舊的固定關鍵幀
+    const vector<KeyFrame*> vNeighKFs = pKF->GetVectorCovisibleKeyFrames();//開關鄰居幀的數量，讓過渡幀進入局部地圖，拉入舊的固定關鍵幀原版
     //const vector<KeyFrame*> vNeighKFs = pKF->GetBestCovisibilityKeyFrames(20);
     for(int i=0, iend=vNeighKFs.size(); i<iend; i++)
     {
@@ -1313,34 +1313,6 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
                 }
         }
     }
-
-
-
-    // Bridge scene transitions: include spanning tree parent's neighborhood開關，調整鄰居幀的數量，讓過渡幀進入局部地圖，拉入舊的固定關鍵幀
-    // Bridge scene transitions: add parent KF's MPs to local map so pre-transition
-    // KFs appear as fixed anchors without making parent itself optimizable
-    // KeyFrame* pParentKF = pKF->GetParent();
-    // if(pParentKF && !pParentKF->isBad() && pParentKF->GetMap() == pCurrentMap
-    //     && pParentKF->mnBALocalForKF != pKF->mnId)
-    // {
-    //     vector<MapPoint*> vpParentMPs = pParentKF->GetMapPointMatches();
-    //     for(MapPoint* pMP : vpParentMPs)
-    //     {
-    //         if(pMP && !pMP->isBad() && pMP->GetMap() == pCurrentMap
-    //         && pMP->mnBALocalForKF != pKF->mnId)
-    //         {
-    //             lLocalMapPoints.push_back(pMP);
-    //             pMP->mnBALocalForKF = pKF->mnId;
-    //         }
-    //     }
-    // }
-
-
-
-
-
-
-
 
 
 

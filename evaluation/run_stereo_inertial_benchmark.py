@@ -136,6 +136,7 @@ ALGO_CONFIGS: dict = {
         "out_prefix_t": "mono_tum",
         "evo_align":    "-as",                     # monocular: align + scale
         "euroc_gt_type": "left_cam",               # GT 來源：left camera frame
+        "out_subdir":   "mono",
     },
     "mono_inertial": {
         "label":        "Mono-Inertial",
@@ -152,6 +153,7 @@ ALGO_CONFIGS: dict = {
         "out_prefix_t": "mimu_tum",
         "evo_align":    "-a",                      # inertial: scale known, align only
         "euroc_gt_type": "imu",                    # GT 來源：IMU/body frame
+        "out_subdir":   "mono_inertial",
     },
     "stereo": {
         "label":        "Stereo",
@@ -168,6 +170,7 @@ ALGO_CONFIGS: dict = {
         "out_prefix_t": "stereo_tum",
         "evo_align":    "-a",                      # stereo: align only
         "euroc_gt_type": "left_cam",               # GT 來源：left camera frame
+        "out_subdir":   "stereo",
     },
     "stereo_inertial": {
         "label":        "Stereo-Inertial",
@@ -184,6 +187,7 @@ ALGO_CONFIGS: dict = {
         "out_prefix_t": "stereo_imu_tum",
         "evo_align":    "-a",                      # stereo: align only
         "euroc_gt_type": "imu",                    # GT 來源：IMU/body frame
+        "out_subdir":   "stereo_imu",
     },
 }
 
@@ -240,6 +244,21 @@ TUM_DATASETS = [
 
 def log(msg: str) -> None:
     print(msg, flush=True)
+
+
+def _seq_to_subdir(seq_suffix: str) -> str:
+    """Convert sequence suffix (e.g. 'm01') to output subdirectory name ('MH_01')."""
+    m = re.match(r'^m(\d+)$', seq_suffix)
+    if m:
+        return f"MH_{m.group(1).zfill(2)}"
+    return seq_suffix
+
+
+def _get_out_dir(cfg: dict, seq_suffix: str) -> Path:
+    """Compute (and create) the per-run output subdirectory."""
+    out_dir = SCRIPT_DIR / cfg["out_subdir"] / _seq_to_subdir(seq_suffix)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    return out_dir
 
 
 def run_cmd(cmd: list, cwd=None, timeout: int = 7200):
@@ -347,11 +366,11 @@ def convert_gt_to_tum(gt_csv: str, out_path: Path) -> bool:
         return False
 
 
-def plot_trajectory_3d_views(gt_csv: str, fixed_traj: Path, output_name: str) -> None:
+def plot_trajectory_3d_views(gt_csv: str, fixed_traj: Path, output_name: str, out_dir: Path) -> None:
     """用 evo 產生 XY / 3D / XZ / YZ 四視圖 PDF（來自 ate_3d.py）。"""
     if not _PLOT_AVAILABLE:
         return
-    out_pdf = SCRIPT_DIR / f"traj3d_{output_name}.pdf"
+    out_pdf = out_dir / f"traj3d_{output_name}.pdf"
     try:
         traj_ref = file_interface.read_euroc_csv_trajectory(gt_csv)
         traj_est = file_interface.read_tum_trajectory_file(str(fixed_traj))
@@ -485,12 +504,12 @@ def _align_se3(est_pos: np.ndarray, gt_pos: np.ndarray):
     return R, mu_g - R @ mu_e
 
 
-def plot_diagnosis(gt_csv: str, fixed_traj: Path, output_name: str) -> None:
+def plot_diagnosis(gt_csv: str, fixed_traj: Path, output_name: str, out_dir: Path) -> None:
     """產生 per-frame ATE + tracking 指標診斷圖（來自 analyze_trajectory.py）。"""
     if not _PLOT_AVAILABLE:
         return
-    log_path = SCRIPT_DIR / f"{output_name}_tracking_log.csv"
-    out_pdf  = SCRIPT_DIR / f"diagnosis_{output_name}.pdf"
+    log_path = out_dir / f"{output_name}_tracking_log.csv"
+    out_pdf  = out_dir / f"diagnosis_{output_name}.pdf"
     if not log_path.exists():
         log(f"  [WARN] 找不到 tracking log: {log_path.name}，跳過診斷圖")
         return
@@ -625,14 +644,14 @@ def plot_diagnosis(gt_csv: str, fixed_traj: Path, output_name: str) -> None:
         log(f"  [WARN] 診斷圖失敗: {e}")
 
 
-def plot_trajectory(gt_csv: str, fixed_traj: Path, output_name: str) -> None:
+def plot_trajectory(gt_csv: str, fixed_traj: Path, output_name: str, out_dir: Path) -> None:
     """呼叫 evaluate_ate_scale.py --plot 產生軌跡比對圖（PDF）。"""
     if not EVALUATE_ATE_PY.exists():
         log(f"  [WARN] 找不到 {EVALUATE_ATE_PY}，跳過繪圖")
         return
 
-    gt_tum   = SCRIPT_DIR / f"gt_tum_{output_name}.txt"
-    plot_out = SCRIPT_DIR / f"trajectory_{output_name}.pdf"
+    gt_tum   = out_dir / f"gt_tum_{output_name}.txt"
+    plot_out = out_dir / f"trajectory_{output_name}.pdf"
 
     if not convert_gt_to_tum(gt_csv, gt_tum):
         return
@@ -652,12 +671,15 @@ def plot_trajectory(gt_csv: str, fixed_traj: Path, output_name: str) -> None:
 
 
 def _postprocess(raw_traj: Path, output_name: str, gt_csv: str,
-                 align_flag: str = "-a", steps: set = None) -> tuple:
+                 align_flag: str = "-a", steps: set = None,
+                 out_dir: Path = None) -> tuple:
     """fix_time + evo_ape + 軌跡圖，回傳 (rmse_or_'FAILED', note)"""
     if steps is None:
         steps = {"fix-time", "eval", "plot-traj", "plot-3d", "plot-diag"}
+    if out_dir is None:
+        out_dir = SCRIPT_DIR
 
-    fixed_traj = SCRIPT_DIR / f"fix_{output_name}.txt"
+    fixed_traj = out_dir / f"fix_{output_name}.txt"
 
     if "fix-time" in steps:
         if not raw_traj.exists():
@@ -671,13 +693,13 @@ def _postprocess(raw_traj: Path, output_name: str, gt_csv: str,
             return "SKIP", "需先執行 --fix-time"
 
     if "plot-traj" in steps:
-        plot_trajectory(gt_csv, fixed_traj, output_name)
+        plot_trajectory(gt_csv, fixed_traj, output_name, out_dir)
 
     if "plot-3d" in steps:
-        plot_trajectory_3d_views(gt_csv, fixed_traj, output_name)
+        plot_trajectory_3d_views(gt_csv, fixed_traj, output_name, out_dir)
 
     if "plot-diag" in steps:
-        plot_diagnosis(gt_csv, fixed_traj, output_name)
+        plot_diagnosis(gt_csv, fixed_traj, output_name, out_dir)
 
     if "eval" in steps:
         rmse = eval_with_evo(gt_csv, fixed_traj, align_flag)
@@ -701,6 +723,7 @@ def run_euroc(cfg: dict, seq_folder: str, ts_stem: str, seq_suffix: str,
         steps = {"run", "fix-time", "eval", "plot-traj", "plot-3d", "plot-diag"}
 
     output_name = f"{cfg['out_prefix_e']}_{seq_suffix}"
+    out_dir     = _get_out_dir(cfg, seq_suffix)
     entry = {
         "algo":        cfg["label"],
         "dataset":     "EuRoC",
@@ -734,9 +757,9 @@ def run_euroc(cfg: dict, seq_folder: str, ts_stem: str, seq_suffix: str,
         for log_type in ["tracking_log.csv", "localmapping_log.csv", "loop_closing_log.csv"]:
             old_log = ROOT_DIR / log_type
             if old_log.exists():
-                new_log = SCRIPT_DIR / f"{output_name}_{log_type}"
+                new_log = out_dir / f"{output_name}_{log_type}"
                 old_log.rename(new_log)
-                log(f"  [LOG] Moved {log_type} to {new_log.name}")
+                log(f"  [LOG] Moved {log_type} to {new_log.relative_to(SCRIPT_DIR)}")
 
         if rc != 0:
             entry["note"] = f"{cfg['bin_euroc']} 回傳 {rc}"
@@ -748,7 +771,7 @@ def run_euroc(cfg: dict, seq_folder: str, ts_stem: str, seq_suffix: str,
             return entry
 
     rmse, note = _postprocess(ROOT_DIR / f"f_{output_name}.txt", output_name, gt_csv,
-                               cfg["evo_align"], steps)
+                               cfg["evo_align"], steps, out_dir)
     entry["rmse"] = rmse
     entry["note"] = note
     return entry
@@ -766,6 +789,7 @@ def run_tum(cfg: dict, category: str, seq_name: str, seq_suffix: str,
         steps = {"run", "fix-time", "eval", "plot-traj", "plot-3d", "plot-diag"}
 
     output_name = f"{cfg['out_prefix_t']}_{seq_suffix}"
+    out_dir     = _get_out_dir(cfg, seq_suffix)
     entry = {
         "algo":        cfg["label"],
         "dataset":     "TUM-VI",
@@ -810,9 +834,9 @@ def run_tum(cfg: dict, category: str, seq_name: str, seq_suffix: str,
         for log_type in ["tracking_log.csv", "localmapping_log.csv", "loop_closing_log.csv"]:
             old_log = ROOT_DIR / log_type
             if old_log.exists():
-                new_log = SCRIPT_DIR / f"{output_name}_{log_type}"
+                new_log = out_dir / f"{output_name}_{log_type}"
                 old_log.rename(new_log)
-                log(f"  [LOG] Moved {log_type} to {new_log.name}")
+                log(f"  [LOG] Moved {log_type} to {new_log.relative_to(SCRIPT_DIR)}")
 
         if rc != 0:
             entry["note"] = f"{cfg['bin_tum']} 回傳 {rc}"
@@ -824,7 +848,7 @@ def run_tum(cfg: dict, category: str, seq_name: str, seq_suffix: str,
             return entry
 
     rmse, note = _postprocess(ROOT_DIR / f"f_{output_name}.txt", output_name, gt_csv,
-                               cfg["evo_align"], steps)
+                               cfg["evo_align"], steps, out_dir)
     entry["rmse"] = rmse
     entry["note"] = note
     return entry
